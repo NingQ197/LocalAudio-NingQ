@@ -1,0 +1,27 @@
+name: localaudio-ningq
+services:
+  turn:
+    image: localaudio-ningq:local
+    build:
+      context: ./server
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777,size=16m
+    env_file: .env
+    ports:
+      - "${TURN_PUBLIC_BIND_IP:-0.0.0.0}:${TURN_PORT:-21113}:${TURN_PORT:-21113}/udp"
+      - "${TURN_PUBLIC_BIND_IP:-0.0.0.0}:${TURN_PORT:-21113}:${TURN_PORT:-21113}/tcp"
+      - "${TURN_PUBLIC_BIND_IP:-0.0.0.0}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./certs:/certs:ro
+    pids_limit: 150
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

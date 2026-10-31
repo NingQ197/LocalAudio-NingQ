@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+  <title id="title">LocalAudio NingQ</title>
+  <desc id="desc">TeamSpeak screen-sharing relay. Readable source, Docker deployment, no purchase activation. Design by ningq.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101e2a"/><stop offset="1" stop-color="#172d38"/></linearGradient>
+    <linearGradient id="line"><stop stop-color="#4bd8be"/><stop offset="1" stop-color="#6da6ee"/></linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="24" fill="url(#bg)"/>
+  <path d="M0 258H1280M870 0V320" stroke="#29414c" stroke-width="1"/>
+  <rect x="46" y="40" width="180" height="28" rx="14" fill="#213b43"/>
+  <circle cx="64" cy="54" r="4" fill="#4bd8be"/>
+  <text x="78" y="59" fill="#b6d8d5" font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="2">SERVER EDITION</text>
+  <text x="44" y="142" fill="#f0f5f8" font-family="Segoe UI,Arial,sans-serif" font-size="58" font-weight="650">LocalAudio <tspan fill="#4bd8be">NingQ</tspan></text>
+  <text x="48" y="188" fill="#abc1cd" font-family="Segoe UI,Arial,sans-serif" font-size="22">TeamSpeak screen-sharing relay</text>
+  <text x="48" y="226" fill="#7e9ba9" font-family="Segoe UI,Arial,sans-serif" font-size="15">Readable source · No purchase activation · Your own deployment</text>
+  <text x="48" y="292" fill="#9eb8c5" font-family="Segoe UI,Arial,sans-serif" font-size="14" letter-spacing="1">DOCKER / DEBIAN</text>
+  <text x="336" y="292" fill="#9eb8c5" font-family="Segoe UI,Arial,sans-serif" font-size="14" letter-spacing="1">TURN : 21113</text>
+  <text x="1026" y="292" fill="#8ca8b6" font-family="Segoe UI,Arial,sans-serif" font-size="14">Design by ningq</text>
+  <g stroke="url(#line)" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M914 152h26l14-24 17 56 21-88 22 116 19-70 14 10h28"/>
+    <path d="M1075 152h24l18-27 17 60 18-87 18 110 21-56h38"/>
+  </g>
+  <g fill="#142934" stroke="#49626f" stroke-width="2">
+    <circle cx="914" cy="152" r="10"/><circle cx="1075" cy="152" r="10"/><circle cx="1229" cy="152" r="10"/>
+  </g>
+  <text x="988" y="72" fill="#6e919f" font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="3">CONNECT / RELAY</text>
+</svg>

@@ -1,0 +1,7 @@
+# Allowlist: private runtime files never enter the Docker build context.
+**
+!Dockerfile
+!entrypoint.sh
+!healthcheck.sh
+!denied-peers.conf
+!THIRD_PARTY_NOTICES.txt

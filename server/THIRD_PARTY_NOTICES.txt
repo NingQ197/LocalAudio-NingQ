@@ -1,0 +1,5 @@
+The runtime base is the official coturn/coturn Debian image, pinned by digest.
+Coturn licensing and Debian component copyright notices remain inside the image
+under /usr/share/licenses/ and /usr/share/doc/. Coturn source and build recipe:
+https://github.com/coturn/coturn/tree/docker/4.18.0-r0
+Project wrapper scripts in this directory do not replace or remove those notices.
