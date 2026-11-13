@@ -1,72 +1,147 @@
-# 部署详解
+# Linux 部署指南
 
 [返回首页](../README.md)
 
-## 配置与持久化
+适合 Debian 12 / 13 的常规 rootful Docker 部署。需要公网 IPv4；服务器位于 NAT 后时，入口及中继端口必须做同号映射。以下命令不会修改现有 TS 服务。
 
-运行时使用根目录 `.env`、`secrets/` 和可选的 `certs/`。这些路径已被 Git 忽略；Docker 构建上下文进一步限制到 `server/` 中五个必要文件。
+## 1. 安装依赖
 
-| 参数 | 作用 |
+已安装 Docker Engine 和 Compose v2 时，可以直接安装 Git、OpenSSL、Python 3，再跳到下一步。
+
+未安装 Docker 的 Debian 服务器可按 [Docker 官方说明](https://docs.docker.com/engine/install/debian/)添加软件源：
+
+```sh
+sudo apt update
+sudo apt install -y ca-certificates curl git openssl python3
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+. /etc/os-release
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' "$(dpkg --print-architecture)" "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker compose version
+```
+
+已安装其它来源的 Docker 时，按官方指南处理冲突软件包，不要直接混装。Docker 组具有接近 root 的权限，这里统一使用 `sudo`。
+
+## 2. 下载与配置
+
+```sh
+git clone https://github.com/NingQ197/LocalAudio-NingQ.git
+cd LocalAudio-NingQ
+cp .env.example .env
+nano .env
+```
+
+| 参数 | 用途与默认值 |
 | --- | --- |
-| `TURN_REALM` | 自己的 TURN 鉴权 realm，通常使用中继域名 |
-| `TURN_PUBLIC_IP` | 当前中继的真实公网 IPv4；脚本拒绝私网和文档示例地址 |
-| `TURN_RELAY_IP` | 留空自动选择容器实际 IPv4；手动指定时必须属于该容器 |
+| `TURN_REALM` | 自己的中继域名；不带协议、路径、端口 |
+| `TURN_PUBLIC_IP` | 实际公网 IPv4，必须修改 |
 | `TURN_PUBLIC_BIND_IP` | 宿主发布地址，默认 `0.0.0.0` |
+| `TURN_RELAY_IP` | 留空，自动选择容器实际 IPv4 |
 | `TURN_PORT` | UDP/TCP 入口，默认 `21113` |
-| `TURN_MIN_PORT` / `TURN_MAX_PORT` | UDP 中继端口范围 |
-| `TURN_USERNAME` | 静态账号名称 |
-| `TURN_PASSWORD_FILE` | 容器内密码文件路径，默认 `/run/secrets/turn-password` |
-| `TURN_USER_QUOTA` | 同一账号的 allocation 上限 |
-| `TURN_TOTAL_QUOTA` | 全服务 allocation 上限 |
-| `TURN_MAX_BPS` | 单 allocation 带宽限制，单位字节/秒 |
-| `TURN_BPS_CAPACITY` | 全服务带宽限制，单位字节/秒 |
+| `TURN_MIN_PORT` / `TURN_MAX_PORT` | UDP 中继范围，默认 `49160` / `49200` |
+| `TURN_USERNAME` | 永久账号名，默认 `localaudio` |
+| `TURN_PASSWORD_FILE` | 容器内密码路径，保持 `/run/secrets/turn-password` |
+| `TURN_USER_QUOTA` | 每个账号的 allocation 上限，默认 `16` |
+| `TURN_TOTAL_QUOTA` | 全服务 allocation 上限，默认 `128` |
+| `TURN_MAX_BPS` | 每个 allocation 字节/秒限制，默认 `12000000` |
+| `TURN_BPS_CAPACITY` | 全服务字节/秒限制，默认 `100000000` |
+| `TURN_MEMORY_LIMIT` | 容器内存上限，默认 `512m` |
+| `TURN_CPU_LIMIT` | 容器 CPU 上限，默认 `2.0` |
 
-入口端口与中继范围需要互不重叠。默认 Docker bridge 网络隔离应保持；宿主网络模式会改变受限对端策略的信任边界。
+allocation 是协议连接资源，不等于观众数量。实际容量同时受中继端口、带宽、CPU 和内存限制；默认 41 个媒体端口也会限制可同时分配的资源。扩大配额时同步评估端口范围和服务器资源。
 
-## 密码文件
+默认账号永久有效。可选的 shared-secret 模式用于已有系统兼容，默认部署不使用它，也不需要续签服务。
 
-默认部署使用永久静态 TURN 账号，不需要定时续签。`scripts/deploy.sh` 首次生成随机密码，已有非空文件会保留；空文件和符号链接会被拒绝。
+## 3. 放行并启动
 
-脚本面向常规 rootful Docker：通过 `sudo sh scripts/deploy.sh` 运行，将密码目录和文件设为容器 UID/GID `65534:65534` 可读。密码目录权限 `700`，密码文件权限 `600`，容器只读挂载该目录。
+云安全组和主机防火墙同时开放 `21113/UDP`、`21113/TCP`、`49160–49200/UDP`。自定义端口后防火墙也要同步修改；Compose 自动读取同一组端口参数。
 
-需要更改密码时，先通过本地管理流程替换文件，再重建中继容器并同步客户端。密码更新会影响后续鉴权；备份时保留文件的保密性与权限。
+```sh
+sudo sh scripts/deploy.sh
+sudo docker compose ps
+sudo cat secrets/turn-password
+```
 
-入口源码还保留可选的 TURN shared-secret 鉴权兼容性。这属于 TURN 协议鉴权，不是购买激活。选择该模式时，须清空静态账号变量，独立配置足够强的 shared secret；默认部署脚本与本指南主要覆盖静态账号。
+`secrets/turn-password` 首次自动随机生成，后续部署保留。目录权限为 `700`、文件权限为 `600`，属主为容器 UID/GID `65534:65534`；宿主上具有该身份或 root 权限的进程也可读取，服务器本身必须可信。
+
+将用户名和密码填入插件网络设置。地址见[首页](../README.md#4-填入插件)。需要更换密码时，安全地替换该文件、保留文件权限，重新部署并更新客户端。不要将密码写进镜像。
 
 ## 可选 TLS
 
-1. 为自己的中继域名准备有效证书链与对应私钥。
-2. 将文件保存为 `certs/fullchain.pem`、`certs/privkey.pem`，确保容器 UID `65534` 可读，限制其他账户读取私钥。
-3. 在 `.env` 设置 `TURN_TLS_ENABLE=1`。
-4. 使用两个 Compose 文件检查和启动：
+TLS 为客户端到中继的连接增加传输保护；WebRTC 媒体本身仍使用 DTLS-SRTP。普通 `turn:` 与加密 `turns:` 的地址不能混用。
+
+先为中继域名准备有效证书链与未加密私钥。将自己的证书复制到本地专用目录，设置容器可读权限：
 
 ```sh
-docker compose -f compose.yaml -f compose.tls.yaml config --quiet
-docker compose -f compose.yaml -f compose.tls.yaml \
-  run --rm --no-deps turn --validate-only
-docker compose -f compose.yaml -f compose.tls.yaml up -d --build --force-recreate turn
+sudo install -d -o root -g 65534 -m 0750 certs
+sudo install -o root -g 65534 -m 0644 /你的证书目录/fullchain.pem certs/fullchain.pem
+sudo install -o root -g 65534 -m 0640 /你的证书目录/privkey.pem certs/privkey.pem
 ```
 
-TLS 公网 TCP 端口由 `TURN_TLS_PUBLIC_PORT` 控制，映射到容器 `TURN_TLS_PORT`。客户端地址使用 `turns:`，并使域名与证书匹配。证书更新后重建容器以重新加载证书，随后检查实际 TLS 连接。
+`certs/` 应为普通本地目录，两个文件也应为普通文件。不要直接挂载仅 root 可遍历的证书签发目录，否则容器 UID `65534` 会无法读取。
 
-证书签发、续期及反向代理由部署者管理；仓库保留空的运行路径约定，不附带任何真实证书或私钥。
+在 `.env` 设置：
 
-## 更新与备份
+```text
+TURN_TLS_ENABLE=1
+TURN_TLS_PUBLIC_PORT=5349
+```
 
-更新前备份 `.env`、`secrets/` 及自备证书，记录当前镜像 ID。拉取审查过的源码，再构建和验证配置；确认可接受连接中断后重建容器。
+然后重新运行 `sudo sh scripts/deploy.sh`。脚本会自动加载 `compose.tls.yaml`，映射公网 TCP 端口。云安全组和防火墙需额外放行这个 TCP 端口。客户端填写：
+
+```text
+turns:relay.example.com:5349?transport=tcp
+```
+
+域名必须与证书匹配。需要公网 TCP 443 时，可将 `TURN_TLS_PUBLIC_PORT` 改为 `443`，容器内仍使用非特权端口 `5349`，同时确认宿主 443 未被其他服务占用。
+
+手动执行 Compose 命令时，使用完整参数：
 
 ```sh
-docker compose images
-docker compose build turn
-docker compose run --rm --no-deps turn --validate-only
-docker compose up -d --force-recreate turn
-docker compose ps
+sudo docker compose -f compose.yaml -f compose.tls.yaml config --quiet
+sudo docker compose -f compose.yaml -f compose.tls.yaml run --rm --no-deps turn --validate-only
+sudo docker compose -f compose.yaml -f compose.tls.yaml ps
 ```
 
-备份应存放于仓库之外或被忽略的 `backups/`。需要离线部署时，可在受信任机器构建并通过 `docker save` 导出镜像，再在目标机器 `docker load`；运行配置与凭据继续单独管理。
+证书签发和续期由服务器管理员管理。续期后重新复制证书及私钥、保留权限并重新部署，再验证实际 TLS 连接。
 
-## 构建边界
+## 镜像导出和离线导入
 
-基础镜像固定到官方 coturn Debian 镜像摘要。`Dockerfile` 的默认构建仅复制入口脚本、健康检查和受限对端策略，容器使用非 root UID `65534`。
+在可联网的受信任 Linux 构建机上：
 
-健康检查不代表完整 TURN 媒体路径已贯通。部署验收应包含正确/错误账号鉴权、强制中继音画、多观众、退出重入，以及实际公网防火墙和 NAT 路由。
+```sh
+sudo docker build --no-cache -t localaudio-ningq:local ./server
+sudo docker save localaudio-ningq:local | gzip > LocalAudio-Server.tar.gz
+sha256sum LocalAudio-Server.tar.gz > LocalAudio-Server.tar.gz.sha256
+```
+
+传输镜像包、校验文件和源码中的 Compose / 部署文件到目标服务器，不要打包本地 `.env`、`secrets/` 或证书。目标服务器执行：
+
+```sh
+sha256sum -c LocalAudio-Server.tar.gz.sha256
+sudo docker load -i LocalAudio-Server.tar.gz
+sudo docker image inspect localaudio-ningq:local
+sudo sh scripts/deploy.sh --no-build
+```
+
+`--no-build` 仍会检查配置、生成或保留本地密码，并启动已导入镜像。镜像架构必须与目标服务器一致；在 amd64 构建机默认得到 amd64 镜像。
+
+## 更新、备份与回滚
+
+更新前在仓库之外安全备份 `.env`、`secrets/` 和自备证书，记录旧镜像 ID，并保留旧源码/Compose。
+
+```sh
+sudo docker compose images
+sudo docker tag localaudio-ningq:local localaudio-ningq:rollback
+sudo sh scripts/deploy.sh
+```
+
+更新会中断现有中继连接。回滚时恢复旧配置和 Compose，将 `localaudio-ningq:rollback` 重新标记为 `localaudio-ningq:local`，再运行 `sudo sh scripts/deploy.sh --no-build`。备份包含永久密码，按密钥材料保管。
+
+## 验收
+
+容器 `healthy` 只表示本地 STUN 能回应；`--validate-only` 只检查配置。正式使用前，至少从外网完成一次客户端强制中继共享，确认视频和音轨正常，并测试退出重入、多观众及错误密码拒绝。

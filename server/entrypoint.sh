@@ -18,7 +18,7 @@ public_ipv4() {
     $1==100 && $2>=64 && $2<=127 {exit 1}
     $1==169 && $2==254 {exit 1}
     $1==172 && $2>=16 && $2<=31 {exit 1}
-    $1==192 && ($2==168 || ($2==0 && ($3==0 || $3==2))) {exit 1}
+    $1==192 && ($2==168 || ($2==0 && ($3==0 || $3==2)) || ($2==88 && $3==99)) {exit 1}
     $1==198 && (($2==18 || $2==19) || ($2==51 && $3==100)) {exit 1}
     $1==203 && $2==0 && $3==113 {exit 1}'
 }
@@ -90,7 +90,7 @@ case "$mode" in
     [ -z "${TURN_SHARED_SECRET:-}" ] || [ -z "${TURN_SHARED_SECRET_FILE:-}" ] || fail 'set either TURN_SHARED_SECRET or TURN_SHARED_SECRET_FILE'
     secret=${TURN_SHARED_SECRET:-}
     if [ -n "${TURN_SHARED_SECRET_FILE:-}" ]; then
-      [ -r "$TURN_SHARED_SECRET_FILE" ] || fail 'TURN_SHARED_SECRET_FILE is unreadable'
+      [ -f "$TURN_SHARED_SECRET_FILE" ] && [ -r "$TURN_SHARED_SECRET_FILE" ] || fail 'TURN_SHARED_SECRET_FILE must be a readable regular file'
       secret=$(head -c 513 "$TURN_SHARED_SECRET_FILE")
     fi
     strong_secret TURN_SHARED_SECRET "$secret" 32
@@ -104,7 +104,7 @@ case "$mode" in
     [ -z "${TURN_PASSWORD:-}" ] || [ -z "${TURN_PASSWORD_FILE:-}" ] || fail 'set either TURN_PASSWORD or TURN_PASSWORD_FILE'
     password=${TURN_PASSWORD:-}
     if [ -n "${TURN_PASSWORD_FILE:-}" ]; then
-      [ -r "$TURN_PASSWORD_FILE" ] || fail 'TURN_PASSWORD_FILE is unreadable'
+      [ -f "$TURN_PASSWORD_FILE" ] && [ -r "$TURN_PASSWORD_FILE" ] || fail 'TURN_PASSWORD_FILE must be a readable regular file'
       password=$(head -c 513 "$TURN_PASSWORD_FILE")
     fi
     strong_secret TURN_PASSWORD "$password" 24
@@ -118,11 +118,15 @@ case "${TURN_TLS_ENABLE:-0}" in
     cert=${TURN_TLS_CERT_FILE:-/certs/fullchain.pem}
     key=${TURN_TLS_KEY_FILE:-/certs/privkey.pem}
     case "$cert$key" in *[!A-Za-z0-9_./-]*) fail 'TLS file paths contain unsupported characters';; esac
-    [ -r "$cert" ] && [ -r "$key" ] || fail 'TURN TLS certificate/key must be mounted and readable by UID 65534'
+    [ -f "$cert" ] && [ -f "$key" ] && [ -r "$cert" ] && [ -r "$key" ] || fail 'TURN TLS certificate/key must be regular files readable by UID 65534'
     openssl x509 -in "$cert" -checkend 0 -noout >/dev/null 2>&1 || fail 'TLS certificate is invalid or expired'
-    cert_pub=$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256)
-    key_pub=$(openssl pkey -in "$key" -passin pass: -pubout -outform DER 2>/dev/null | openssl dgst -sha256)
-    [ "$cert_pub" = "$key_pub" ] || fail 'TLS certificate and private key do not match'
+    # POSIX sh does not have pipefail: check each extraction independently so
+    # two failed parsers cannot appear equal as the SHA256 of empty input.
+    openssl x509 -in "$cert" -pubkey -noout >"$runtime/cert-public.pem" 2>/dev/null || fail 'TLS certificate public key could not be read'
+    openssl pkey -pubin -in "$runtime/cert-public.pem" -outform DER >"$runtime/cert-public.der" 2>/dev/null || fail 'TLS certificate public key is invalid'
+    openssl pkey -in "$key" -passin pass: -pubout -outform DER >"$runtime/key-public.der" 2>/dev/null || fail 'TLS private key is invalid or encrypted'
+    cmp -s "$runtime/cert-public.der" "$runtime/key-public.der" || fail 'TLS certificate and private key do not match'
+    rm -f "$runtime/cert-public.pem" "$runtime/cert-public.der" "$runtime/key-public.der"
     printf 'tls-listening-port=%s\ncert=%s\npkey=%s\n' "$tls_port" "$cert" "$key" >>"$config"
     ;;
   *) fail 'TURN_TLS_ENABLE must be 0 or 1';;

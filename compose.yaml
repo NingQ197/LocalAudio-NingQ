@@ -20,6 +20,8 @@ services:
       - ./secrets:/run/secrets:ro
       - ./certs:/certs:ro
     pids_limit: 150
+    mem_limit: ${TURN_MEMORY_LIMIT:-512m}
+    cpus: ${TURN_CPU_LIMIT:-2.0}
     ulimits:
       nofile: {soft: 65536, hard: 65536}
     logging:

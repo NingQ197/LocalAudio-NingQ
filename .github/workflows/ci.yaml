@@ -8,7 +8,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -16,7 +16,7 @@ jobs:
       - name: Check publish boundary and shell syntax
         run: |
           python3 tools/check_publish.py
-          sh -n server/entrypoint.sh server/healthcheck.sh scripts/deploy.sh
+          for script in server/entrypoint.sh server/healthcheck.sh scripts/deploy.sh; do sh -n "$script"; done
       - name: Test configuration validation
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Validate Compose definitions
@@ -29,4 +29,33 @@ jobs:
       - name: Test real TURN authentication and network policy
         env:
           LOCAL_AUDIO_TEST_IMAGE: localaudio-ningq:test
-        run: python3 -m unittest discover -s tests -p 'test_container.py' -v
+        run: python3 tools/run_container_checks.py
+      - name: Scan final image dependencies
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tar.gz" https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz
+          printf '%s  %s\n' bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          "$RUNNER_TEMP/trivy" image --scanners vuln --format json --output image-scan.json localaudio-ningq:test
+          python3 tools/check_image_report.py image-scan.json
+      - name: Export tested image
+        run: |
+          docker tag localaudio-ningq:test localaudio-ningq:local
+          docker save localaudio-ningq:local | gzip > LocalAudio-Server.tar.gz
+          sha256sum LocalAudio-Server.tar.gz > LocalAudio-Server.tar.gz.sha256
+      - name: Preserve tested server image
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: LocalAudio-Server-amd64
+          path: |
+            LocalAudio-Server.tar.gz
+            LocalAudio-Server.tar.gz.sha256
+          compression-level: 0
+          retention-days: 14
+      - name: Preserve vulnerability scan
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: image-vulnerability-report
+          path: image-scan.json
+          if-no-files-found: ignore
+          retention-days: 14

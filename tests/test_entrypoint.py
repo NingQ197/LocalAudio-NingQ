@@ -41,7 +41,7 @@ class Entrypoint(unittest.TestCase):
     def test_file_password(self):
         f=self.root/'credential';f.write_text(self.password+'\n');p=self.run_script({'TURN_PASSWORD':None,'TURN_PASSWORD_FILE':posix(f)});self.assertEqual(p.returncode,0,p.stderr)
     def test_rejects_invalid_inputs(self):
-        cases=[{'TURN_PASSWORD':None},{'TURN_PASSWORD':'x'*40},{'TURN_PASSWORD':self.password+'\nno-auth'}, {'TURN_AUTH_MODE':'anonymous'}, {'TURN_USERNAME':'x:password'}, {'TURN_USERNAME':'x\nno-auth'}, {'TURN_REALM':'x\nno-auth'}, {'TURN_REALM':'bad..realm'}, {'TURN_PUBLIC_IP':'127.0.0.1'}, {'TURN_PUBLIC_IP':'203.0.113.10'}, {'TURN_PUBLIC_IP':'01.2.3.4'}, {'TURN_PUBLIC_IP':self.env['TURN_PUBLIC_IP']+'\nno-auth'}, {'TURN_PORT':'021113'}, {'TURN_PORT':'65536'}, {'TURN_PORT':'49161'}, {'TURN_TLS_PORT':'49161'}, {'TURN_MIN_PORT':'50000','TURN_MAX_PORT':'40000'}, {'TURN_USER_QUOTA':'0'}, {'TURN_TOTAL_QUOTA':'-1'}, {'TURN_RELAY_IP':'10.99.98.97'}, {'TURN_TLS_ENABLE':'maybe'}, {'TURN_TLS_ENABLE':'1'}, {'TURN_SHARED_SECRET':secrets.token_urlsafe(40)}]
+        cases=[{'TURN_PASSWORD':None},{'TURN_PASSWORD':'x'*40},{'TURN_PASSWORD':None,'TURN_PASSWORD_FILE':posix(self.root)},{'TURN_PASSWORD':self.password+'\nno-auth'}, {'TURN_AUTH_MODE':'anonymous'}, {'TURN_USERNAME':'x:password'}, {'TURN_USERNAME':'x\nno-auth'}, {'TURN_REALM':'x\nno-auth'}, {'TURN_REALM':'bad..realm'}, {'TURN_PUBLIC_IP':'127.0.0.1'}, {'TURN_PUBLIC_IP':'.'.join(map(str,(192,88,99,1)))}, {'TURN_PUBLIC_IP':'203.0.113.10'}, {'TURN_PUBLIC_IP':'01.2.3.4'}, {'TURN_PUBLIC_IP':self.env['TURN_PUBLIC_IP']+'\nno-auth'}, {'TURN_PORT':'021113'}, {'TURN_PORT':'65536'}, {'TURN_PORT':'49161'}, {'TURN_TLS_PORT':'49161'}, {'TURN_MIN_PORT':'50000','TURN_MAX_PORT':'40000'}, {'TURN_USER_QUOTA':'0'}, {'TURN_TOTAL_QUOTA':'-1'}, {'TURN_RELAY_IP':'10.99.98.97'}, {'TURN_TLS_ENABLE':'maybe'}, {'TURN_TLS_ENABLE':'1'}, {'TURN_SHARED_SECRET':secrets.token_urlsafe(40)}]
         for changes in cases:
             with self.subTest(fields=sorted(changes)):
                 p=self.run_script(changes);self.assertEqual(p.returncode,64);self.assertNotIn(self.password,p.stdout+p.stderr)
@@ -53,5 +53,29 @@ class Entrypoint(unittest.TestCase):
     def test_config_limits_and_same_server_exception(self):
         self.assertEqual(self.run_script().returncode,0)
         text=(self.runtime/'turnserver.conf').read_text();self.assertIn('user-quota=16\n',text);self.assertIn('total-quota=128\n',text);self.assertIn('allowed-peer-ip=172.29.0.2\n',text);self.assertIn('denied-peer-ip=169.254.0.0-',text);self.assertNotIn('denied-peer-ip=::\n',text)
+
+    def tls_fixture(self, name):
+        key=self.root/(name+'.key');cert=self.root/(name+'.pem')
+        command='openssl req -x509 -newkey rsa:2048 -nodes -keyout '+shlex.quote(key.resolve().as_posix())+' -out '+shlex.quote(cert.resolve().as_posix())+' -days 2 -subj /CN=relay.test'
+        env=os.environ.copy();env['MSYS_NO_PATHCONV']='1'
+        p=subprocess.run([SHELL,'-c',command],env=env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(p.returncode,0,'Fixture certificate generation failed')
+        return cert,key
+    def test_tls_valid_pair_and_wrong_private_key(self):
+        cert,key=self.tls_fixture('valid');_,other=self.tls_fixture('other')
+        values={'TURN_TLS_ENABLE':'1','TURN_TLS_CERT_FILE':posix(cert),'TURN_TLS_KEY_FILE':posix(key)}
+        p=self.run_script(values);self.assertEqual(p.returncode,0,p.stderr)
+        self.assertNotIn(self.password,p.stdout+p.stderr)
+        self.assertFalse((self.runtime/'key-public.der').exists())
+        values['TURN_TLS_KEY_FILE']=posix(other)
+        p=self.run_script(values);self.assertEqual(p.returncode,64)
+        self.assertIn('do not match',p.stderr)
+    def test_tls_invalid_private_key_fails_closed(self):
+        cert,key=self.tls_fixture('valid');key.write_text('invalid synthetic key')
+        p=self.run_script({'TURN_TLS_ENABLE':'1','TURN_TLS_CERT_FILE':posix(cert),'TURN_TLS_KEY_FILE':posix(key)})
+        self.assertEqual(p.returncode,64);self.assertIn('private key is invalid',p.stderr)
+    def test_shared_secret_file_must_be_regular(self):
+        p=self.run_script({'TURN_AUTH_MODE':'secret','TURN_USERNAME':None,'TURN_PASSWORD':None,'TURN_SHARED_SECRET_FILE':posix(self.root)})
+        self.assertEqual(p.returncode,64)
 
 if __name__=='__main__':unittest.main()
