@@ -71,7 +71,9 @@ class Container(unittest.TestCase):
         dependencies=run('docker','exec',self.name,'ldd','/usr/bin/turnserver').stdout.lower()
         for name in ('sqlite','libpq','mariadb','mysql','mongoc','bson','hiredis','lmdb'):
             self.assertNotIn(name,dependencies)
-        self.assertNotEqual(run('docker','exec',self.name,'dpkg-query','-W','libsqlite3-0',check=False).returncode,0)
+        for package in ('util-linux','liblastlog2-2','libsqlite3-0'):
+            self.assertNotEqual(run('docker','exec',self.name,'dpkg-query','-W',package,check=False).returncode,0)
+        run('docker','exec',self.name,'sh','-ec','for tool in sh hostname awk mkdir chmod head cat fold sort wc id rm cmp grep find openssl dpkg-query ldd; do command -v "$tool" >/dev/null; done')
     def test_shared_secret_rest_auth_without_database(self):
         name='localaudio-secret-test-'+secrets.token_hex(6)
         secret=secrets.token_urlsafe(48)

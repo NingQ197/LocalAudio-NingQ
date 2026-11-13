@@ -16,15 +16,25 @@ RUN TURN_NO_SQLITE=1 TURN_NO_PQ=1 TURN_NO_MYSQL=1 TURN_NO_MONGO=1 TURN_NO_HIREDI
  && make -j2 \
  && strip bin/turnserver bin/turnutils_stunclient
 
+# Debian util-linux inherits lastlog2 -> SQLite even without coturn DB support.
+# This single-service runtime does not use those tools. Require an exact purge
+# plan; retain the independent login/mount packages and every other component.
 FROM ${DEBIAN_BASE}
 RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends libevent-2.1-7t64 libevent-core-2.1-7t64 libevent-extra-2.1-7t64 libevent-openssl-2.1-7t64 libevent-pthreads-2.1-7t64 openssl hostname mawk \
+ && apt-get -s purge util-linux liblastlog2-2 libsqlite3-0 > /tmp/runtime-purge-plan \
+ && planned=$(awk '$1 == "Remv" || $1 == "Purg" { sub(/:.*/, "", $2); print $2 }' /tmp/runtime-purge-plan | sort -u) \
+ && expected=$(printf '%s\n' liblastlog2-2 libsqlite3-0 util-linux | sort) \
+ && [ "$planned" = "$expected" ] \
+ && apt-get purge -y --allow-remove-essential util-linux liblastlog2-2 libsqlite3-0 \
+ && rm -f /tmp/runtime-purge-plan \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /build/bin/turnserver /build/bin/turnutils_stunclient /usr/bin/
 COPY --from=build /build/LICENSE /usr/share/doc/coturn/LICENSE
 COPY entrypoint.sh healthcheck.sh denied-peers.conf THIRD_PARTY_NOTICES.txt /opt/ts3-relay/
-RUN chmod 0555 /opt/ts3-relay/entrypoint.sh /opt/ts3-relay/healthcheck.sh \
+RUN for tool in sh hostname awk mkdir chmod head cat fold sort wc id rm cmp grep find openssl dpkg-query ldd; do command -v "$tool" >/dev/null || exit 1; done \
+ && chmod 0555 /opt/ts3-relay/entrypoint.sh /opt/ts3-relay/healthcheck.sh \
  && chmod 0444 /opt/ts3-relay/denied-peers.conf /opt/ts3-relay/THIRD_PARTY_NOTICES.txt \
  && find /usr -xdev -perm /6000 -exec chmod a-s {} +
 USER 65534:65534

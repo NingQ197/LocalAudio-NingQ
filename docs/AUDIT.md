@@ -21,7 +21,7 @@ TURN 密码只决定谁可以使用中继，不决定谁能观看某个共享。
 
 ## 镜像与依赖
 
-镜像从校验 SHA256 的 coturn 4.18.0 源码进行多阶段构建，只保留 OpenSSL、libevent 和入口所需工具。账号和 shared secret 从配置加载到内存，不编译数据库后端；SQLite、MariaDB、PostgreSQL、MongoDB、Redis 客户端库、编译器及构建依赖不进入运行镜像。
+镜像从校验 SHA256 的 coturn 4.18.0 源码进行多阶段构建，只保留 OpenSSL、libevent 和入口所需工具。账号和 shared secret 从配置加载到内存，不编译数据库后端；SQLite、MariaDB、PostgreSQL、MongoDB、Redis 客户端库、编译器及构建依赖不进入运行镜像。基础系统继承的 `util-linux → lastlog2 → SQLite` 依赖链也会移除，构建先核对删除集合，超出预期即中止；入口所需命令单独验证。
 
 Debian 基础镜像固定摘要，构建时安装当前安全更新。镜像包不是永远不变的安全基线；需定期重建、扫描和关注[上游安全公告](https://github.com/coturn/coturn/security/advisories)。源码固定并不代表系统包版本在所有构建日期都相同。
 
