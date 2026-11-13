@@ -1,0 +1,13 @@
+# Loaded automatically for TURN_IP_MODE=dual or ipv6.
+services:
+  turn:
+    ports:
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_PORT:-21113}:${TURN_PORT:-21113}/udp"
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_PORT:-21113}:${TURN_PORT:-21113}/tcp"
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "${TURN_DOCKER_IPV6_SUBNET:-fd42:2111:3000::/64}"

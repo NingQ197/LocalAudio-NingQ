@@ -1,0 +1,39 @@
+--- a/src/server/ns_turn_server.c
++++ b/src/server/ns_turn_server.c
+@@ -305,6 +305,27 @@
+ 
+ /////////////////// Peer addr check /////////////////////////////
+ 
++/* LocalAudio: permit only the explicitly configured own ULA relay interface.
++ * The wrapper verifies that relay-ip belongs to this container namespace.
++ * Keep hard rejection for every other ULA, link-local and site-local target;
++ * ordinary whitelist/blacklist checks below still apply to the own address. */
++static int localaudio_own_ula_relay(turn_turnserver *server, const ioa_addr *peer_addr) {
++  if (!server || !server->e || !peer_addr || peer_addr->ss.sa_family != AF_INET6) {
++    return 0;
++  }
++  const unsigned char *u = peer_addr->s6.sin6_addr.s6_addr;
++  if ((u[0] & 0xfe) != 0xfc) {
++    return 0;
++  }
++  for (size_t i = 0; i < server->e->relays_number; ++i) {
++    const ioa_addr *relay_addr = &server->e->relay_addrs[i];
++    if (relay_addr->ss.sa_family == AF_INET6 && addr_eq_no_port(peer_addr, relay_addr)) {
++      return 1;
++    }
++  }
++  return 0;
++}
++
+ static int good_peer_addr(turn_turnserver *server, const char *realm, ioa_addr *peer_addr, turnsession_id session_id) {
+ #define CHECK_REALM(r)                                                                                                 \
+   if ((r)[0] && realm && realm[0] && strcmp((r), realm))                                                               \
+@@ -326,7 +347,7 @@
+      * denied-peer-ip. An IPv4 denied-peer-ip range cannot even express an IPv6
+      * internal target, so this closes the native-IPv6 SSRF path to internal
+      * services such as a ULA-hosted database. */
+-    if (ioa_addr_is_internal_deny_default(peer_addr)) {
++    if (ioa_addr_is_internal_deny_default(peer_addr) && !localaudio_own_ula_relay(server, peer_addr)) {
+       char saddr[MAX_IOA_ADDR_STRING] = "";
+       addr_to_string_no_port(peer_addr, saddr);
+       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,

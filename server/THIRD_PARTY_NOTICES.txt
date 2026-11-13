@@ -29,6 +29,14 @@ by SHA256 in Dockerfile. Coturn uses the BSD 3-Clause license. Its unmodified
 LICENSE is copied into /usr/share/doc/coturn/LICENSE in the runtime image.
 Source: https://github.com/coturn/coturn/tree/4.18.0
 
+LocalAudio applies server/coturn-own-ula.patch to that verified upstream source.
+The patch permits the engine's explicitly configured own ULA relay interface
+to proceed through the existing peer ACL checks, allowing two allocations on
+this relay to exchange IPv6 media. The wrapper verifies exact local interface
+membership. Other ULA, link-local, site-local and private peers remain blocked;
+no subnet-wide exception is introduced. This is a local modification, not an
+upstream coturn release. The original BSD copyright and license are retained.
+
 The runtime uses Debian GNU/Linux, OpenSSL and libevent. Debian component
 copyright and licensing notices are preserved under /usr/share/doc/ in the image.
 Building from source does not replace or remove those third-party notices.

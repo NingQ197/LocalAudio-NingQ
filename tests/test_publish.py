@@ -46,6 +46,16 @@ class PublishBoundary(unittest.TestCase):
         tracked.unlink()
         self.assertIn('missing_or_nonregular_source_file', check.findings(tracked))
 
+    def test_public_ipv6_endpoints_are_rejected_but_documentation_addresses_are_allowed(self):
+        file = self.root / 'NETWORK.md'
+        public = str(__import__('ipaddress').IPv6Address((0x2606 << 112) + 1))
+        for value in (public, '[' + public + ']:21113', public + '%eth0'):
+            with self.subTest(format=value.split('%')[-1] if '%' in value else 'literal'):
+                file.write_text('TURN=' + value + '\n')
+                self.assertIn('literal_public_ipv6', check.findings(file))
+        file.write_text('Example: turn:[2001:db8::1]:21113\n')
+        self.assertEqual(check.findings(file), [])
+
 
 if __name__ == '__main__':
     unittest.main()

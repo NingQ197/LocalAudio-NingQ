@@ -22,6 +22,10 @@ public_ipv4() {
     $1==198 && (($2==18 || $2==19) || ($2==51 && $3==100)) {exit 1}
     $1==203 && $2==0 && $3==113 {exit 1}'
 }
+normalize6() {
+  case "$1" in ''|*[!0-9A-Fa-f:]*) return 1;; esac
+  awk -v value="$1" -v role="$2" -f /opt/ts3-relay/ipv6.awk
+}
 number() {
   case "$2" in ''|*[!0-9]*) fail "$1 must be an integer";; esac
   [ "$2" = "${2#0}" ] || [ "$2" = 0 ] || fail "$1 must not have leading zeros"
@@ -38,8 +42,16 @@ realm=${TURN_REALM:-}
 case "$realm" in ''|*[!A-Za-z0-9.-]*) fail 'TURN_REALM must be an explicit DNS-style realm';; esac
 [ "${#realm}" -le 253 ] || fail 'TURN_REALM is too long'
 printf '%s\n' "$realm" | awk -F. '{for(i=1;i<=NF;i++) if(length($i)<1 || length($i)>63 || $i ~ /^-/ || $i ~ /-$/) exit 1}' || fail 'TURN_REALM contains an invalid DNS label'
+ip_mode=${TURN_IP_MODE:-ipv4}
+case "$ip_mode" in ipv4|dual|ipv6) ;; *) fail 'TURN_IP_MODE must be ipv4, dual or ipv6';; esac
 public=${TURN_PUBLIC_IP:-}
-public_ipv4 "$public" || fail 'TURN_PUBLIC_IP must be an explicit globally routable IPv4 address (documentation/private addresses are rejected)'
+public6=
+if [ "$ip_mode" != ipv6 ]; then
+  public_ipv4 "$public" || fail 'TURN_PUBLIC_IP must be an explicit globally routable IPv4 address (documentation/private addresses are rejected)'
+fi
+if [ "$ip_mode" != ipv4 ]; then
+  public6=$(normalize6 "${TURN_PUBLIC_IPV6:-}" public) || fail 'TURN_PUBLIC_IPV6 must be a bare globally routable IPv6 address; special, mapped, transition and documentation addresses are rejected'
+fi
 port=${TURN_PORT:-21113}
 tls_port=${TURN_TLS_PORT:-5349}
 min=${TURN_MIN_PORT:-49160}
@@ -62,22 +74,46 @@ number TURN_MAX_BPS "$max_bps" 10000 999999999
 number TURN_BPS_CAPACITY "$capacity" 10000 999999999
 # Select an actual local interface address, never a wildcard relay address.
 # A wildcard public/private mapping turns same-server relay peers into 0.0.0.0.
-local_ipv4s=$(hostname -I 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print $i}')
-[ -n "$local_ipv4s" ] || fail 'no local IPv4 relay interface was found'
-relay=${TURN_RELAY_IP:-$(printf '%s\n' "$local_ipv4s" | head -n1)}
-valid_ipv4 "$relay" || fail 'TURN_RELAY_IP must be a concrete local IPv4 interface address'
-case "$relay" in 0.*|127.*|169.254.*) fail 'TURN_RELAY_IP cannot be wildcard, loopback or link-local';; esac
-printf '%s\n' "$local_ipv4s" | grep -Fx -- "$relay" >/dev/null || fail 'TURN_RELAY_IP does not belong to this container network namespace'
+local_addresses=$(hostname -I 2>/dev/null) || fail 'local interface discovery failed'
+relay=
+relay6=
+if [ "$ip_mode" != ipv6 ]; then
+  local_ipv4s=$(printf '%s\n' "$local_addresses" | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print $i}')
+  [ -n "$local_ipv4s" ] || fail 'no local IPv4 relay interface was found'
+  relay=${TURN_RELAY_IP:-$(printf '%s\n' "$local_ipv4s" | head -n1)}
+  valid_ipv4 "$relay" || fail 'TURN_RELAY_IP must be a concrete local IPv4 interface address'
+  case "$relay" in 0.*|127.*|169.254.*) fail 'TURN_RELAY_IP cannot be wildcard, loopback or link-local';; esac
+  printf '%s\n' "$local_ipv4s" | grep -Fx -- "$relay" >/dev/null || fail 'TURN_RELAY_IP does not belong to this container network namespace'
+fi
+if [ "$ip_mode" != ipv4 ]; then
+  local_ipv6s=$(for address in $local_addresses; do
+    case "$address" in *:*) normalize6 "$address" relay || :;; esac
+  done)
+  [ -n "$local_ipv6s" ] || fail 'no eligible local IPv6 relay interface was found; enable the IPv6 Compose network'
+  relay6=${TURN_RELAY_IPV6:-$(printf '%s\n' "$local_ipv6s" | head -n1)}
+  relay6=$(normalize6 "$relay6" relay) || fail 'TURN_RELAY_IPV6 must be a concrete ULA or globally routable IPv6 address'
+  printf '%s\n' "$local_ipv6s" | grep -Fx -- "$relay6" >/dev/null || fail 'TURN_RELAY_IPV6 does not belong to this container network namespace'
+fi
 runtime=/tmp/ts3-turn
 mkdir -p "$runtime"
 config=$runtime/turnserver.conf
 {
-  printf 'realm=%s\nlistening-ip=0.0.0.0\nlistening-port=%s\nmin-port=%s\nmax-port=%s\n' "$realm" "$port" "$min" "$max"
-  printf 'relay-ip=%s\nexternal-ip=%s/%s\n' "$relay" "$public" "$relay"
-  # Coturn decodes a peer's public relay candidate back to its local relay IP.
-  # This exact own-container exception permits same-server allocations to talk,
-  # without allowing any other RFC1918 / Docker-host / metadata destination.
-  printf 'allowed-peer-ip=%s\n' "$relay"
+  printf 'realm=%s\nlistening-port=%s\nmin-port=%s\nmax-port=%s\n' "$realm" "$port" "$min" "$max"
+  case "$ip_mode" in
+    ipv4) printf 'allocation-default-address-family=ipv4\n';;
+    dual) printf 'allocation-default-address-family=keep\n';;
+    ipv6) printf 'allocation-default-address-family=ipv6\n';;
+  esac
+  if [ "$ip_mode" != ipv6 ]; then
+    printf 'listening-ip=0.0.0.0\nrelay-ip=%s\nexternal-ip=%s/%s\nallowed-peer-ip=%s\n' "$relay" "$public" "$relay" "$relay"
+  fi
+  if [ "$ip_mode" != ipv4 ]; then
+    # Coturn deliberately uses IPV6_V6ONLY=0. A concrete IPv6 listener avoids
+    # accepting IPv4-mapped traffic in ipv6 mode; ::1 is for local health checks.
+    printf 'listening-ip=%s\nlistening-ip=::1\nrelay-ip=%s\nexternal-ip=%s/%s\nallowed-peer-ip=%s\n' "$relay6" "$relay6" "$public6" "$relay6" "$relay6"
+  fi
+  # Only the actual selected relay interface gets a peer ACL exception. This
+  # permits same-container allocations without allowing another ULA/private IP.
   printf 'fingerprint\nno-multicast-peers\nno-tcp-relay\nno-auth-pings\nstale-nonce=600\nmax-allocate-lifetime=3600\nmax-allocate-timeout=30\n'
   printf 'user-quota=%s\ntotal-quota=%s\nmax-bps=%s\nbps-capacity=%s\n' "$quota" "$total" "$max_bps" "$capacity"
   printf 'log-file=stdout\nsimple-log\npidfile=%s/turnserver.pid\n' "$runtime"
@@ -135,7 +171,7 @@ chmod 600 "$config"
 # CLI, web admin, DTLS, RFC5780 and anonymous TURN are never enabled.
 # Do not log the config: it contains a credential secret.
 if [ "${1:-}" = '--validate-only' ]; then
-  printf 'TURN configuration valid; authentication=%s; TLS=%s; relay range=%s-%s\n' "$mode" "${TURN_TLS_ENABLE:-0}" "$min" "$max"
+  printf 'TURN configuration valid; authentication=%s; TLS=%s; IP mode=%s; relay range=%s-%s\n' "$mode" "${TURN_TLS_ENABLE:-0}" "$ip_mode" "$min" "$max"
   exit 0
 fi
 exec /usr/bin/turnserver -c "$config"

@@ -23,3 +23,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 image-scan.json
+LocalAudio-Server.tar.gz.sha256

@@ -24,6 +24,10 @@ jobs:
           cp .env.example .env
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.tls.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ipv6.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.tls.yaml -f compose.tls.ipv6.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.ipv6only.yaml config --quiet
+          docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.ipv6only.yaml -f compose.tls.ipv6.yaml config --quiet
       - name: Build audited relay
         run: docker build --no-cache -t localaudio-ningq:test ./server
       - name: Test real TURN authentication and network policy
@@ -42,6 +46,15 @@ jobs:
           docker tag localaudio-ningq:test localaudio-ningq:local
           docker save localaudio-ningq:local | gzip > LocalAudio-Server.tar.gz
           sha256sum LocalAudio-Server.tar.gz > LocalAudio-Server.tar.gz.sha256
+      - name: Package offline deployment
+        run: python3 tools/package_release.py LocalAudio-Server.tar.gz artifacts/release
+      - name: Preserve offline deployment package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: LocalAudio-Server-release
+          path: artifacts/release/*
+          compression-level: 0
+          retention-days: 14
       - name: Preserve tested server image
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -59,3 +72,59 @@ jobs:
           path: image-scan.json
           if-no-files-found: ignore
           retention-days: 14
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: server-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: LocalAudio-Server-release
+          path: artifacts/release
+      - name: Publish versioned deployment package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cat VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          cd artifacts/release
+          sha256sum -c SHA256SUMS.txt
+          cd ../..
+          if gh release view "$tag" --json isDraft,targetCommitish > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+            if [ "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" = false ]; then
+              echo "Release $tag is already published; its assets are unchanged."
+              exit 0
+            fi
+            [ "$(jq -r .targetCommitish "$RUNNER_TEMP/release.json")" = "$GITHUB_SHA" ]
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" > "$RUNNER_TEMP/tag-refs.json"
+          object=$(jq -c --arg ref "refs/tags/$tag" '[.[] | select(.ref == $ref) | .object] | if length == 0 then empty elif length == 1 then .[0] else error("Duplicate tag ref") end' "$RUNNER_TEMP/tag-refs.json")
+          if [ -n "$object" ]; then
+            for depth in 1 2 3 4 5; do
+              type=$(jq -r .type <<< "$object")
+              sha=$(jq -r .sha <<< "$object")
+              [ "$type" = commit ] && break
+              [ "$type" = tag ]
+              object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object')
+            done
+            type=$(jq -r .type <<< "$object")
+            sha=$(jq -r .sha <<< "$object")
+            [ "$type" = commit ] && [ "$sha" = "$GITHUB_SHA" ] || { echo 'Existing version tag does not resolve to this tested commit.' >&2; exit 1; }
+          fi
+          if [ ! -s "$RUNNER_TEMP/release.json" ]; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "LocalAudio Server $tag" --notes-file docs/RELEASE.md --draft
+          fi
+          gh release upload "$tag" artifacts/release/LocalAudio-Server.zip artifacts/release/SHA256SUMS.txt --clobber
+          gh release edit "$tag" --draft=false --latest

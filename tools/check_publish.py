@@ -42,6 +42,18 @@ def findings(path):
         # not a deployment endpoint. Keep this exception local to that file.
         if name=='server/denied-peers.conf' and address in ipaddress.ip_network((0xc0586300,24)):continue
         if address.is_global and not address.is_multicast:problems.append('literal_public_ipv4');break
+    # Inspect IPv6 literals as well as IPv4. Examples use RFC 3849 addresses;
+    # actual deployment endpoints belong in the local .env file.
+    for match in re.finditer(r'(?<![\w:])[0-9A-Fa-f:.]+(?:%[A-Za-z0-9_.-]+)?(?![\w:])',text):
+        value=match[0]
+        if value.count(':')<2:continue
+        try:address=ipaddress.ip_address(value)
+        except ValueError:continue
+        if address.version!=6:continue
+        # These are policy deny ranges, never public deployment endpoints.
+        special=('64:ff9b::/96','64:ff9b:1::/48','100::/64','100:0:0:1::/64','2001::/23','2001:db8::/32','2002::/16','3ffe::/16','3fff::/20','5f00::/16','fc00::/7','fe80::/9','ff00::/8')
+        if name in {'server/denied-peers.conf','tools/check_publish.py'} and any(address in ipaddress.ip_network(n) for n in special):continue
+        if address.is_global and not address.is_multicast:problems.append('literal_public_ipv6');break
     return sorted(set(problems))
 def main():
     checked=paths();errors=[]

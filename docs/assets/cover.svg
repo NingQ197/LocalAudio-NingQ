@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
   <title id="title">LocalAudio NingQ</title>
-  <desc id="desc">TeamSpeak screen-sharing relay. Readable source, Docker deployment, no purchase activation. Design by ningq.</desc>
+  <desc id="desc">TeamSpeak screen-sharing relay. IPv4 and IPv6, Docker deployment, permanent accounts. Design by ningq.</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101e2a"/><stop offset="1" stop-color="#172d38"/></linearGradient>
     <linearGradient id="line"><stop stop-color="#4bd8be"/><stop offset="1" stop-color="#6da6ee"/></linearGradient>
@@ -12,7 +12,7 @@
   <text x="78" y="59" fill="#b6d8d5" font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="2">SERVER EDITION</text>
   <text x="44" y="142" fill="#f0f5f8" font-family="Segoe UI,Arial,sans-serif" font-size="58" font-weight="650">LocalAudio <tspan fill="#4bd8be">NingQ</tspan></text>
   <text x="48" y="188" fill="#abc1cd" font-family="Segoe UI,Arial,sans-serif" font-size="22">TeamSpeak screen-sharing relay</text>
-  <text x="48" y="226" fill="#7e9ba9" font-family="Segoe UI,Arial,sans-serif" font-size="15">Readable source · No purchase activation · Your own deployment</text>
+  <text x="48" y="226" fill="#7e9ba9" font-family="Segoe UI,Arial,sans-serif" font-size="15">IPv4 / IPv6 · Permanent accounts · Docker deployment</text>
   <text x="48" y="292" fill="#9eb8c5" font-family="Segoe UI,Arial,sans-serif" font-size="14" letter-spacing="1">DOCKER / DEBIAN</text>
   <text x="336" y="292" fill="#9eb8c5" font-family="Segoe UI,Arial,sans-serif" font-size="14" letter-spacing="1">TURN : 21113</text>
   <text x="1026" y="292" fill="#8ca8b6" font-family="Segoe UI,Arial,sans-serif" font-size="14">Design by ningq</text>

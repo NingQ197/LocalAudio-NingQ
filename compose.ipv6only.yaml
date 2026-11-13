@@ -1,0 +1,7 @@
+# Loaded after compose.ipv6.yaml; requires Docker Compose v2.24.4+.
+services:
+  turn:
+    ports: !override
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_PORT:-21113}:${TURN_PORT:-21113}/udp"
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_PORT:-21113}:${TURN_PORT:-21113}/tcp"
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"

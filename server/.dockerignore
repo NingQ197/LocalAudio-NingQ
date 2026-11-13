@@ -5,3 +5,5 @@
 !healthcheck.sh
 !denied-peers.conf
 !THIRD_PARTY_NOTICES.txt
+!ipv6.awk
+!coturn-own-ula.patch

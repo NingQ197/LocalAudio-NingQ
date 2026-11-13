@@ -1,0 +1,5 @@
+# Add for TLS with dual/ipv6; combine the IPv4 TLS override only in dual mode.
+services:
+  turn:
+    ports:
+      - "[${TURN_PUBLIC_BIND_IPV6:-::}]:${TURN_TLS_PUBLIC_PORT:-5349}:${TURN_TLS_PORT:-5349}/tcp"

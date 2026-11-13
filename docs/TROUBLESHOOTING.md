@@ -1,51 +1,69 @@
-# 故障排查
+# 常见问题
 
-[返回首页](../README.md)
+[返回首页](../README.md) · [部署指南](DEPLOYMENT.md)
 
-## 486：分配配额已满
-
-TURN 486 指 allocation 配额达到上限；配额不是固定的观众人数。多个客户端共用同一个静态账号时，会共同消耗账号配额。ICE 收集、网络候选、重连和观众数量都会影响占用。
-
-处理顺序：
-
-1. 检查容器实际配置的 `TURN_USER_QUOTA`、`TURN_TOTAL_QUOTA` 和运行日志。
-2. 确认停止观看、断开和失败重试后，客户端会关闭旧的 PeerConnection。
-3. 根据实际占用、端口数量和服务器容量提高配额；例如测试 `64` / `256`，同时评估现有中继端口范围是否足够。
-4. 重建容器使新环境变量生效；该操作会中断现有中继连接。
-5. 强制 TURN，让多名观众同时观看并反复退出、加入，观察新的分配和释放。
-
-只增大配额不会增加服务器带宽。密码可以保持永久静态；解决 486 不要求更换为短期账号。
-
-## STUN 正常，但共享失败
-
-健康检查验证 STUN Binding；TURN Allocate 还涉及账号、nonce、realm、配额和媒体端口。检查：
-
-- 客户端地址是否指向实际运行此服务的主机，端口是否一致。
-- 云安全组和主机防火墙是否同时放行入口与 UDP 中继范围。
-- `TURN_PUBLIC_IP` 是否为公网映射地址，`TURN_RELAY_IP` 是否为容器真实地址。
-- 主机位于 NAT 后时，公网中继端口是否一对一映射到同号宿主端口。
-- 客户端是否确实选中 `relay` 候选，而不是成功改走 P2P。
-
-## 401 与账号问题
-
-TURN 长期鉴权的首次 401 通常是正常 challenge；正确客户端应携带 realm、nonce 与完整性信息再次申请。持续 401 则需核对用户名、密码、realm 和鉴权模式。
-
-静态账号没有到期时间；不要将客户端中的用户名和密码与 shared-secret 管理密钥混用。
-
-## 403：受限对端
-
-默认策略拒绝回环、私网、链路本地、云 metadata 等目标，避免账号被用于访问受限网络。它为已核对属于本容器的 relay IPv4 保留精确例外，以支持同一 TURN 服务上的两个 allocation 互通。
-
-该例外按 IP 生效，不能当作端口级白名单。因此应保留默认 bridge 隔离和单用途容器，避免向容器加入其它服务。不要为了消除 403 而放行整段私网。
-
-## 无法启动或 TLS 失败
+## 先查看状态
 
 ```sh
-docker compose ps
-docker compose logs --tail 50 turn
-docker compose run --rm --no-deps turn --validate-only
+sudo docker compose ps
+sudo docker compose logs --tail 50 turn
+sudo docker compose run --rm --no-deps turn --validate-only
 ```
 
-日志可能包含使用者的网络地址，分享前请先脱敏。不要上传完整运行配置或密码文件。
+容器 `healthy` 表示本地 STUN 能响应；配置校验通过表示配置格式有效。两者都不替代公网媒体连接测试。额外启用了 TLS 或 IPv6 覆盖文件时，手动 Compose 命令需使用部署指南中对应的完整文件组合。
 
-TLS 需另加 `compose.tls.yaml`，并检查证书有效期、域名、私钥匹配、文件读取权限和公网 TCP 端口。`turn:` 与 `turns:` 需要和所启用的协议对应。
+## 486：中继分配配额已满
+
+allocation 是一份 TURN 连接资源，不等于一名观众。ICE 候选收集、重连和多名观众都会增加分配；多个客户端共用一个账号时，也共用该账号的配额。
+
+查看 `TURN_USER_QUOTA`、`TURN_TOTAL_QUOTA` 和日志，确认客户端退出后旧连接正常释放。需要扩大容量时，同时调整配额、媒体端口范围和服务器资源，再重新部署。默认 `49160–49200` 只有 41 个媒体端口；仅提高配额不会增加端口或带宽。486 与永久账号的有效期无关。
+
+## STUN 正常，但没有画面
+
+依次核对：
+
+1. 客户端地址、DNS 和入口端口对应实际中继服务器。
+2. 云安全组和主机防火墙开放了 `21113/TCP`、`21113/UDP`、`49160–49200/UDP`。
+3. `TURN_PUBLIC_IP` 与实际公网 IPv4 一致；NAT 后的媒体端口采用同号映射。
+4. 用户名、密码与服务器一致。
+5. 测试时选择强制中继，客户端实际选中了 `relay` 候选。
+
+普通 TURN TCP 仅将客户端到中继的传输改为 TCP，服务器的 UDP 媒体中继范围仍需开放。
+
+## 401：用户名或密码不匹配
+
+长期鉴权的首次 401 通常是正常的认证挑战，客户端随后携带 realm、nonce 和完整性信息重试。持续 401 时，核对用户名、密码和 `TURN_REALM`。密码以 `sudo cat secrets/turn-password` 的结果为准。
+
+默认是静态账号；shared-secret 是另一种兼容模式，其管理密钥不能直接当作静态账号密码填写。
+
+## 403：对端地址受限
+
+默认策略限制私网、回环、链路本地等目标。容器自身经过核对的中继 IP 有精确例外，用于同服务 allocation 互通。
+
+核对容器网络和 relay 地址是否仍与部署配置一致。默认 bridge 与单用途容器是该策略的隔离前提；修改网络模型后，应重新检查实际对端和策略匹配情况。
+
+## IPv6 解析成功，但连接失败
+
+AAAA 只表示域名声明了 IPv6 地址。服务器的公网 IPv6、Docker IPv6 网络、端口映射和两层防火墙都需实际可达。双栈部署分别检查 A 与 AAAA；旧的 AAAA 或错误 IPv6 路由可能导致部分客户端优先连接失败。
+
+IPv6-only 中继要求客户端具备可用 IPv6 网络，并支持申请和使用 IPv6 relay 候选。仅支持 IPv4 的客户端无法直接使用；浏览器能通过 IPv6 打开网页，也不等于 WebRTC 已支持这条媒体路径。可先用双栈模式验证，再分别测试 IPv4 与 IPv6。
+
+## TLS 连接失败
+
+核对 `TURN_TLS_ENABLE=1`、证书有效期与域名、私钥匹配、容器读取权限，以及公网 TCP 端口。默认地址为：
+
+```text
+turns:relay.example.com:5349?transport=tcp
+```
+
+`turn:` 和 `turns:` 分别对应普通和 TLS 连接。证书更换后需重新部署，使新进程读取证书。
+
+## 更新后账号变化或镜像找不到
+
+原账号由 `.env` 与 `secrets/turn-password` 共同保存。恢复这两项后重新部署即可沿用原账号。`--no-build` 要求本机已有 `localaudio-ningq:local` 镜像，可先执行：
+
+```sh
+sudo docker image inspect localaudio-ningq:local
+sudo docker load -i LocalAudio-Server.tar.gz
+sudo sh scripts/deploy.sh --no-build
+```
