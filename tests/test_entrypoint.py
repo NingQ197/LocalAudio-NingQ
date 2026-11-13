@@ -37,7 +37,7 @@ class Entrypoint(unittest.TestCase):
         return subprocess.run([SHELL,str(self.script),*args],env=env,capture_output=True,text=True,timeout=10)
     def test_static_config_and_secret_redaction(self):
         p=self.run_script();self.assertEqual(p.returncode,0,p.stderr);self.assertNotIn(self.password,p.stdout+p.stderr)
-        text=(self.runtime/'turnserver.conf').read_text();self.assertIn('lt-cred-mech\n',text);self.assertIn('user=fixture:'+self.password,text);self.assertNotIn('\nno-auth\n',text)
+        text=(self.runtime/'turnserver.conf').read_text();self.assertIn('lt-cred-mech\n',text);self.assertIn('user=fixture:'+self.password,text);self.assertNotIn('\nno-auth\n',text);self.assertNotIn('userdb=',text)
     def test_file_password(self):
         f=self.root/'credential';f.write_text(self.password+'\n');p=self.run_script({'TURN_PASSWORD':None,'TURN_PASSWORD_FILE':posix(f)});self.assertEqual(p.returncode,0,p.stderr)
     def test_rejects_invalid_inputs(self):

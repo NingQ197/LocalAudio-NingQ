@@ -5,6 +5,6 @@ by SHA256 in Dockerfile. Coturn uses the BSD 3-Clause license. Its unmodified
 LICENSE is copied into /usr/share/doc/coturn/LICENSE in the runtime image.
 Source: https://github.com/coturn/coturn/tree/4.18.0
 
-The runtime uses Debian GNU/Linux, OpenSSL, libevent and SQLite. Debian component
+The runtime uses Debian GNU/Linux, OpenSSL and libevent. Debian component
 copyright and licensing notices are preserved under /usr/share/doc/ in the image.
 Building from source does not replace or remove those third-party notices.

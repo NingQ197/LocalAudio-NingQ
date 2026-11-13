@@ -132,6 +132,6 @@ docker build -t localaudio-ningq:test ./server
 LOCAL_AUDIO_TEST_IMAGE=localaudio-ningq:test python3 tools/run_container_checks.py
 ```
 
-CI 构建真实镜像，验证 UDP / TCP / TLS 鉴权、拒绝匿名和错误密码、受限对端、双向 UDP 中继及运行权限，并对最终镜像执行漏洞扫描。扫描中的可修复高危和严重问题会阻止检查通过；暂时没有修复版本的条目仍会完整列出，不作为零漏洞保证。
+CI 构建真实镜像，验证 UDP / TCP / TLS 鉴权、拒绝匿名和错误密码、受限对端、双向 UDP 中继及运行权限，并对最终镜像执行漏洞扫描。当前发行版提供修复版本的 HIGH / CRITICAL 问题会阻止检查通过；发行版暂未提供修复版本的条目仍会完整列出。这不表示上游没有补丁，也不作为零漏洞保证。
 
-本项目使用 [MIT 许可证](LICENSE)。coturn 4.18.0 来自[上游源码](https://github.com/coturn/coturn/tree/4.18.0)，基础镜像和源码均固定摘要；构建时安装 Debian 安全更新。数据库客户端和编译工具不会进入运行镜像。
+本项目使用 [MIT 许可证](LICENSE)。coturn 4.18.0 来自[上游源码](https://github.com/coturn/coturn/tree/4.18.0)，基础镜像和源码均固定摘要；构建时安装 Debian 安全更新。运行镜像不包含 SQLite、外部数据库客户端和编译工具。

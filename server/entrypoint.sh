@@ -80,7 +80,7 @@ config=$runtime/turnserver.conf
   printf 'allowed-peer-ip=%s\n' "$relay"
   printf 'fingerprint\nno-multicast-peers\nno-tcp-relay\nno-auth-pings\nstale-nonce=600\nmax-allocate-lifetime=3600\nmax-allocate-timeout=30\n'
   printf 'user-quota=%s\ntotal-quota=%s\nmax-bps=%s\nbps-capacity=%s\n' "$quota" "$total" "$max_bps" "$capacity"
-  printf 'log-file=stdout\nsimple-log\nuserdb=%s/turn.sqlite\npidfile=%s/turnserver.pid\n' "$runtime" "$runtime"
+  printf 'log-file=stdout\nsimple-log\npidfile=%s/turnserver.pid\n' "$runtime"
   cat /opt/ts3-relay/denied-peers.conf
 } >"$config"
 mode=${TURN_AUTH_MODE:-static}

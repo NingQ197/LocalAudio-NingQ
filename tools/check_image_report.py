@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail on fixable high/critical dependencies; display unresolved findings too."""
+"""Fail on high/critical findings with distribution fixes; display all others."""
 from collections import Counter
 import json
 from pathlib import Path
@@ -25,13 +25,13 @@ def main():
     except (ValueError, TypeError, KeyError) as exc:
         raise SystemExit('Invalid image scan report: ' + str(exc))
     print('All package findings:', dict(sorted(Counter(row.get('Severity', 'UNKNOWN') for row in findings).items())))
-    print(f'Fixable HIGH/CRITICAL package findings: {len(fixed)}')
-    print(f'HIGH/CRITICAL without an available fixed version: {len(unresolved)}')
+    print(f'HIGH/CRITICAL with a fixed version recorded for this distribution: {len(fixed)}')
+    print(f'HIGH/CRITICAL without a fixed version recorded for this distribution: {len(unresolved)}')
     for row in sorted(fixed + unresolved, key=lambda row: (row['VulnerabilityID'], row['PkgName'])):
         print(row['Severity'], row['VulnerabilityID'], row['PkgName'], row['InstalledVersion'], 'fixed=' + row.get('FixedVersion', 'unavailable'))
     if fixed:
         raise SystemExit(1)
-    print('PASS: no fixable HIGH/CRITICAL dependency findings; remaining findings require review')
+    print('PASS: no HIGH/CRITICAL dependency findings with distribution fixes recorded; all remaining findings require review')
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@ TURN 密码只决定谁可以使用中继，不决定谁能观看某个共享。
 - 入口拒绝匿名模式、任意附加 coturn 参数、换行注入、无效端口和不属于容器的 relay 地址。
 - 私网、回环、链路本地、云 metadata 与特殊地址受对端策略限制。只对经过本机网卡核对的容器 relay IPv4 保留精确例外，支持同一中继内的两个 allocation 互通。
 - TCP 可作为客户端到 TURN 的传输；RFC6062 TCP 对端中继关闭。
-- 容器使用 UID `65534`、只读根目录、临时内存目录，删除 capabilities 并禁止获得新权限。
+- 容器使用 UID `65534`、只读根目录、临时内存目录，删除 capabilities 并禁止获得新权限，运行镜像移除 `/usr` 中的 SUID / SGID 位。
 - Compose 限制内存、CPU、PID、文件描述符和日志容量；coturn 另设账号及总分配配额、带宽限制和握手超时。
 - 只启用必要协议，不启用 CLI、Web 管理、RFC5780、DTLS 监听、mobility 或 metrics 接口。
 
@@ -21,7 +21,7 @@ TURN 密码只决定谁可以使用中继，不决定谁能观看某个共享。
 
 ## 镜像与依赖
 
-镜像从校验 SHA256 的 coturn 4.18.0 源码进行多阶段构建，只保留 OpenSSL、libevent、SQLite 和入口所需工具。MariaDB、PostgreSQL、MongoDB、Redis 客户端库、编译器及构建依赖不进入运行镜像。
+镜像从校验 SHA256 的 coturn 4.18.0 源码进行多阶段构建，只保留 OpenSSL、libevent 和入口所需工具。账号和 shared secret 从配置加载到内存，不编译数据库后端；SQLite、MariaDB、PostgreSQL、MongoDB、Redis 客户端库、编译器及构建依赖不进入运行镜像。
 
 Debian 基础镜像固定摘要，构建时安装当前安全更新。镜像包不是永远不变的安全基线；需定期重建、扫描和关注[上游安全公告](https://github.com/coturn/coturn/security/advisories)。源码固定并不代表系统包版本在所有构建日期都相同。
 
@@ -32,10 +32,10 @@ Debian 基础镜像固定摘要，构建时安装当前安全更新。镜像包�
 1. 源码上传边界和 Shell 语法检查，包括未跟踪但可能被提交的新文件。
 2. 配置输入、静态账号、密码文件、TLS证书匹配、部署模式和发布扫描负例测试。
 3. Compose 校验与真实 Docker 构建。
-4. 真实容器 UDP / TCP / TLS 鉴权、匿名与错误密码拒绝、私网和 metadata 目标拒绝。
+4. 真实容器 UDP / TCP / TLS 静态账号鉴权、匿名、未知用户名与错误密码拒绝；验证兼容 shared-secret 模式的实际协议鉴权，以及私网和 metadata 目标拒绝。
 5. 两个实际 TURN allocation 在同一隔离容器中的双向 UDP 载荷转发与释放。
 6. 非 root、只读、资源限制、日志保密、引擎版本和不需要的数据库依赖检查。
-7. Trivy 最终镜像依赖扫描；可修复的 HIGH / CRITICAL 条目阻止 CI 通过。无修复版本的条目仍显示在扫描输出和报告中，需结合软件包与实际使用路径评估。
+7. Trivy 最终镜像依赖扫描；当前发行版提供修复版本的 HIGH / CRITICAL 条目阻止 CI 通过。发行版尚无修复版本的条目仍显示在扫描输出和报告中，需另外核对上游补丁、软件包和实际调用路径；发行版未提供修复不代表上游没有修复。
 
 容器阶段必须真正执行，跳过测试不能算通过。漏洞扫描报告保留为 Actions 附件；其结论受当时漏洞数据库和检测能力限制，不能证明不存在未知漏洞。
 
