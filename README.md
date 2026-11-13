@@ -29,7 +29,7 @@ LocalAudio-NingQ 是 [LocalAudio 插件](https://github.com/NingQ197/LocalAudio-
 
 ## 快速部署
 
-下面使用 **Linux amd64** 离线镜像包。服务器需装好 Docker Engine、Compose v2、OpenSSL、Python 3 和 unzip；详细安装命令见[Linux 部署指南](docs/DEPLOYMENT.md#准备环境)。
+下面使用 **Linux amd64** 离线镜像包。服务器需装好 Docker Engine、Compose v2、OpenSSL、Python 3、unzip 和 nano；详细安装命令见[Linux 部署指南](docs/DEPLOYMENT.md#准备环境)。
 
 ### 1. 下载并上传
 
@@ -46,19 +46,19 @@ scp LocalAudio-Server.zip SHA256SUMS.txt user@your-server:/home/user/
 
 `LocalAudio-Server.zip` 是带镜像的服务端包；GitHub 自动提供的 `Source code (zip)` 只有源码。
 
-### 2. 解压、导入镜像
+### 2. 校验、解压和配置
 
 以下命令在服务器上执行，先进入上传目录：
 
 ```sh
-sha256sum -c SHA256SUMS.txt
-unzip -q LocalAudio-Server.zip
-cd LocalAudio-Server
-sha256sum -c LocalAudio-Server.tar.gz.sha256
-sudo docker load -i LocalAudio-Server.tar.gz
-cp .env.example .env
+sha256sum -c SHA256SUMS.txt &&
+unzip -q LocalAudio-Server.zip &&
+cd LocalAudio-Server &&
+cp .env.example .env &&
 nano .env
 ```
+
+这段命令仅在上一步成功时继续。ZIP 校验显示 `OK`、解压和配置完成后，再执行启动步骤。
 
 默认使用 IPv4，修改这两项：
 
@@ -81,12 +81,14 @@ TURN_PUBLIC_IP=你的服务器公网IPv4
 双栈部署需要同时放行 IPv4 和 IPv6 规则。
 
 ```sh
-sudo sh scripts/deploy.sh --no-build
-sudo docker compose ps
+sha256sum -c LocalAudio-Server.tar.gz.sha256 &&
+sudo docker load -i LocalAudio-Server.tar.gz &&
+sudo sh scripts/deploy.sh --no-build &&
+sudo docker compose ps &&
 sudo cat secrets/turn-password
 ```
 
-`--no-build` 使用已导入镜像，服务器无需安装 Git，也无需访问 GitHub。
+镜像校验或导入失败时，这段命令会停止，后面的启动不会执行。`--no-build` 使用已导入镜像，服务器无需安装 Git，也无需访问 GitHub。
 
 ### 4. 填入插件
 
@@ -107,10 +109,10 @@ TURN:  turn:relay.example.com:21113?transport=udp
 需要服务器能够下载 GitHub 源码和镜像构建依赖：
 
 ```sh
-git clone --branch v2.1.0 --depth 1 https://github.com/NingQ197/LocalAudio-NingQ.git
-cd LocalAudio-NingQ
-cp .env.example .env
-nano .env
+git clone --branch v2.1.0 --depth 1 https://github.com/NingQ197/LocalAudio-NingQ.git &&
+cd LocalAudio-NingQ &&
+cp .env.example .env &&
+nano .env &&
 sudo sh scripts/deploy.sh
 ```
 
@@ -129,9 +131,9 @@ sudo sh scripts/deploy.sh
 ## 开发
 
 ```sh
-python3 tools/check_publish.py
-python3 -m unittest discover -s tests -p 'test_*.py' -v
-docker build -t localaudio-ningq:test ./server
+python3 tools/check_publish.py &&
+python3 -m unittest discover -s tests -p 'test_*.py' -v &&
+docker build -t localaudio-ningq:test ./server &&
 LOCAL_AUDIO_TEST_IMAGE=localaudio-ningq:test python3 tools/run_container_checks.py
 ```
 

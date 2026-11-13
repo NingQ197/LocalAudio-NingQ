@@ -60,10 +60,11 @@ turns:relay.example.com:5349?transport=tcp
 
 ## 更新后账号变化或镜像找不到
 
-原账号由 `.env` 与 `secrets/turn-password` 共同保存。恢复这两项后重新部署即可沿用原账号。`--no-build` 要求本机已有 `localaudio-ningq:local` 镜像，可先执行：
+原账号由 `.env` 与 `secrets/turn-password` 共同保存。恢复这两项后重新部署即可沿用原账号。`--no-build` 要求本机已有 `localaudio-ningq:local` 镜像；镜像缺失时，在解压后的发行包目录执行：
 
 ```sh
-sudo docker image inspect localaudio-ningq:local
-sudo docker load -i LocalAudio-Server.tar.gz
+sha256sum -c LocalAudio-Server.tar.gz.sha256 &&
+sudo docker load -i LocalAudio-Server.tar.gz &&
+sudo docker image inspect localaudio-ningq:local &&
 sudo sh scripts/deploy.sh --no-build
 ```

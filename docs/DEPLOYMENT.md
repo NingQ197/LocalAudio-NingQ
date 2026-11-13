@@ -6,31 +6,31 @@
 
 ## 准备环境
 
-需要 Docker Engine、Docker Compose v2、OpenSSL、Python 3；解压发行包还需要 unzip。IPv6-only 覆盖文件使用 Compose 的 `!override`，需要 **Compose v2.24.4 或更新版本**。
+需要 Docker Engine、Docker Compose v2、OpenSSL、Python 3；解压和编辑配置使用 unzip、nano。IPv6-only 覆盖文件使用 Compose 的 `!override`，需要 **Compose v2.24.4 或更新版本**。
 
 命令示例使用 `sudo`。以 root 登录、系统未安装 sudo 时，可直接执行去掉 `sudo` 后的命令。
 
 已安装 Docker 的服务器补齐依赖即可：
 
 ```sh
-sudo apt update
-sudo apt install -y ca-certificates openssl python3 unzip
+sudo apt update &&
+sudo apt install -y ca-certificates openssl python3 unzip nano &&
 sudo docker compose version
 ```
 
 新装 Debian 可按 [Docker 官方指南](https://docs.docker.com/engine/install/debian/)添加软件源：
 
 ```sh
-sudo apt update
-sudo apt install -y ca-certificates curl openssl python3 unzip
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-. /etc/os-release
-printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' "$(dpkg --print-architecture)" "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker
+sudo apt update &&
+sudo apt install -y ca-certificates curl openssl python3 unzip nano &&
+sudo install -m 0755 -d /etc/apt/keyrings &&
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc &&
+sudo chmod a+r /etc/apt/keyrings/docker.asc &&
+. /etc/os-release &&
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' "$(dpkg --print-architecture)" "$VERSION_CODENAME" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null &&
+sudo apt update &&
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin &&
+sudo systemctl enable --now docker &&
 sudo docker compose version
 ```
 
@@ -65,20 +65,17 @@ scp LocalAudio-Server.zip SHA256SUMS.txt 'user@[2001:db8::10]:/home/user/'
 进入上传目录后执行：
 
 ```sh
-sha256sum -c SHA256SUMS.txt
-unzip -q LocalAudio-Server.zip
+sha256sum -c SHA256SUMS.txt &&
+unzip -q LocalAudio-Server.zip &&
 cd LocalAudio-Server
-sha256sum -c LocalAudio-Server.tar.gz.sha256
-sudo docker load -i LocalAudio-Server.tar.gz
-sudo docker image inspect localaudio-ningq:local
 ```
 
-前一次校验对应完整 ZIP，后一次校验对应包内镜像。两次都显示 `OK` 后继续。镜像标签为 `localaudio-ningq:local`。
+ZIP 校验显示 `OK` 且成功进入 `LocalAudio-Server` 目录后，再继续配置。校验失败时不会执行后面的解压。包内镜像在启动前单独校验和导入。
 
 ### 3. 填写配置
 
 ```sh
-cp .env.example .env
+cp .env.example .env &&
 nano .env
 ```
 
@@ -103,12 +100,15 @@ TURN_PUBLIC_IP=你的服务器公网IPv4
 双栈模式同时设置 IPv4 和 IPv6 规则；IPv6-only 设置对应 IPv6 规则。主机位于 NAT 后时，入口和 UDP 中继范围需同号映射到这台服务器。客户端使用 TURN TCP 时，中继的 UDP 媒体范围仍需放行。
 
 ```sh
-sudo sh scripts/deploy.sh --no-build
-sudo docker compose ps
+sha256sum -c LocalAudio-Server.tar.gz.sha256 &&
+sudo docker load -i LocalAudio-Server.tar.gz &&
+sudo docker image inspect localaudio-ningq:local &&
+sudo sh scripts/deploy.sh --no-build &&
+sudo docker compose ps &&
 sudo cat secrets/turn-password
 ```
 
-`--no-build` 使用刚才导入的镜像，不触发镜像构建。首次启动自动生成永久密码，后续部署沿用。默认用户名为 `localaudio`，可通过 `TURN_USERNAME` 修改。
+这段命令按“镜像校验 → 导入 → 启动”执行，任何一步失败都会停止，镜像加载失败时不会继续启动。镜像标签为 `localaudio-ningq:local`，`--no-build` 使用刚才导入的镜像，不触发构建。首次启动自动生成永久密码，后续部署沿用。默认用户名为 `localaudio`，可通过 `TURN_USERNAME` 修改。
 
 ### 5. 配置插件
 
@@ -127,18 +127,18 @@ TURN:  turn:relay.example.com:21113?transport=udp
 服务器需能访问 GitHub、Debian 软件源和 Docker 镜像源：
 
 ```sh
-sudo apt install -y git
-git clone --branch v2.1.0 --depth 1 https://github.com/NingQ197/LocalAudio-NingQ.git
-cd LocalAudio-NingQ
-cp .env.example .env
+sudo apt install -y git &&
+git clone --branch v2.1.0 --depth 1 https://github.com/NingQ197/LocalAudio-NingQ.git &&
+cd LocalAudio-NingQ &&
+cp .env.example .env &&
 nano .env
 ```
 
 按 A 方案的配置与端口步骤设置后，执行：
 
 ```sh
-sudo sh scripts/deploy.sh
-sudo docker compose ps
+sudo sh scripts/deploy.sh &&
+sudo docker compose ps &&
 sudo cat secrets/turn-password
 ```
 
@@ -174,6 +174,8 @@ TURN_PUBLIC_IPV6=你的服务器公网IPv6
 
 域名使用可达的 AAAA 记录。IPv6-only 不要求公网 IPv4，也不发布 IPv4 入口。客户端必须具备 IPv6 网络，并支持申请和使用 IPv6 relay 候选；仅支持 IPv4 的客户端无法直接使用。
 
+这里的 IPv6-only 指对外监听和端口发布；Docker bridge 仍保留容器内部 IPv4 地址分配。
+
 ### Docker 网络与启动
 
 `compose.ipv6.yaml` 启用容器 IPv6 网络，默认内部子网为 `fd42:2111:3000::/64`。与现有网络冲突时，可修改 `TURN_DOCKER_IPV6_SUBNET`。`TURN_RELAY_IPV6` 通常留空，自动选择容器实际 IPv6；`TURN_PUBLIC_BIND_IPV6` 默认为 `::`。
@@ -201,7 +203,7 @@ sudo sh scripts/deploy.sh --no-build
 例如，IPv6-only 的配置检查和状态查询：
 
 ```sh
-sudo docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.ipv6only.yaml config --quiet
+sudo docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.ipv6only.yaml config --quiet &&
 sudo docker compose -f compose.yaml -f compose.ipv6.yaml -f compose.ipv6only.yaml ps
 ```
 
@@ -233,8 +235,8 @@ WebRTC 媒体采用 DTLS-SRTP。TURN TLS 额外保护客户端到中继的连接
 准备域名对应的有效证书链与未加密私钥，复制到 `certs/`：
 
 ```sh
-sudo install -d -o root -g 65534 -m 0750 certs
-sudo install -o root -g 65534 -m 0644 /你的证书目录/fullchain.pem certs/fullchain.pem
+sudo install -d -o root -g 65534 -m 0750 certs &&
+sudo install -o root -g 65534 -m 0644 /你的证书目录/fullchain.pem certs/fullchain.pem &&
 sudo install -o root -g 65534 -m 0640 /你的证书目录/privkey.pem certs/privkey.pem
 ```
 
@@ -268,14 +270,14 @@ turns:relay.example.com:5349?transport=tcp
 更新前记录旧镜像并保留旧部署目录：
 
 ```sh
-sudo docker image inspect localaudio-ningq:local --format '{{.Id}}'
+sudo docker image inspect localaudio-ningq:local --format '{{.Id}}' &&
 sudo docker tag localaudio-ningq:local localaudio-ningq:rollback
 ```
 
 将新包解压到新目录，迁移实例配置，再导入镜像并部署。更新会中断现有连接。回滚时使用旧目录、旧配置，并执行：
 
 ```sh
-sudo docker tag localaudio-ningq:rollback localaudio-ningq:local
+sudo docker tag localaudio-ningq:rollback localaudio-ningq:local &&
 sudo sh scripts/deploy.sh --no-build
 ```
 

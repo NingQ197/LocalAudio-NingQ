@@ -143,13 +143,30 @@ class IPv6Fixture:
         self.addCleanup(c.close)
         return c
 
+    def allocate_success(self, client, family=6):
+        kind, fields = client.allocate('fixture', self.password, family=family)
+        self.assertEqual(kind, 0x103, 'TURN Allocate failed: error=' + str(error(fields)) + ', transport=' + client.transport + ', requestedFamily=' + str(family))
+
+    def release_success(self, client):
+        try:
+            kind, fields = client.release()
+            self.assertEqual(kind, 0x104, 'TURN Refresh failed: error=' + str(error(fields)))
+            self.assertEqual(fields.get(0x0d), b'\0\0\0\0', 'TURN release must acknowledge lifetime zero')
+        finally:
+            client.close()
+            # coturn 4.18.0 schedules Refresh(0) teardown after one second.
+            # Closing a UDP client alone cannot notify the server. Let quota,
+            # bandwidth reservations and relay ports recover before the next
+            # independent experiment; keep production resource limits intact.
+            time.sleep(1.1)
+
     def test_ipv6_authentication_udp_tcp_tls(self):
         for transport in ('udp', 'tcp', 'tls'):
             with self.subTest(transport=transport):
                 c = self.client(transport)
-                self.assertEqual(c.allocate('fixture', self.password, family=6)[0], 0x103)
+                self.allocate_success(c)
                 self.assertEqual(c.relay[0], self.public6)
-                self.assertEqual(c.release()[0], 0x104)
+                self.release_success(c)
 
     def test_ipv6_anonymous_unknown_wrong_rejected(self):
         for transport in ('udp', 'tcp', 'tls'):
@@ -163,20 +180,20 @@ class IPv6Fixture:
 
     def test_ipv6_private_and_special_peers_rejected(self):
         c = self.client()
-        self.assertEqual(c.allocate('fixture', self.password, family=6)[0], 0x103)
+        self.allocate_success(c)
         other_ula = str(ipaddress.IPv6Address(int(ipaddress.IPv6Address(self.relay6)) + 100))
         special = [':'.join(format(word, 'x') for word in row) for row in ((0xfec0, 0, 0, 0, 0, 0, 0, 1), (0x64, 0xff9b, 0, 0, 0, 0, 0xa9fe, 0xa9fe), (0x64, 0xff9b, 1, 0, 0, 0, 0xa00, 1), (0x100, 0, 0, 1, 0, 0, 0, 1), (0x2002, 0xa00, 1, 0, 0, 0, 0, 0), (0x3ffe, 0, 0, 0, 0, 0, 0, 1), (0x3fff, 0, 0, 0, 0, 0, 0, 1), (0x5f00, 0, 0, 0, 0, 0, 0, 1))]
         targets = ('::', '::1', other_ula, 'fd00::1', 'fe80::1', 'ff02::1', '::ffff:7f00:1', '::ffff:a9fe:a9fe', '::ffff:a00:1', '100::1', '2001:db8::1', *special)
         for target in targets:
             with self.subTest(target=target):
                 self.assertIn(error(c.permission(target)[1]), (403, 443))
-        self.assertEqual(c.release()[0], 0x104)
+        self.release_success(c)
 
     def test_ipv6_bidirectional_advertised_and_own_ula(self):
         for advertised in (True, False):
             with self.subTest(advertised=advertised):
                 left, right = self.client(), self.client()
-                for c in (left, right): self.assertEqual(c.allocate('fixture', self.password, family=6)[0], 0x103)
+                for c in (left, right): self.allocate_success(c)
                 target = self.public6 if advertised else self.relay6
                 self.assertEqual(left.permission(target)[0], 0x108)
                 self.assertEqual(right.permission(target)[0], 0x108)
@@ -185,28 +202,77 @@ class IPv6Fixture:
                 self.assertEqual(right.receive_data(), payload)
                 right.send_data(target, left.relay[1], payload[::-1])
                 self.assertEqual(left.receive_data(), payload[::-1])
-                for c in (left, right): self.assertEqual(c.release()[0], 0x104)
+                for c in (left, right): self.release_success(c)
 
     def test_default_family_ipv6_for_ipv6_transport(self):
         for transport in ('udp', 'tcp', 'tls'):
             c = self.client(transport)
-            self.assertEqual(c.allocate('fixture', self.password, family=None)[0], 0x103)
+            self.allocate_success(c, family=None)
             self.assertEqual(c.relay[0], self.public6)
-            self.assertEqual(c.release()[0], 0x104)
+            self.release_success(c)
 
 
 @unittest.skipUnless(IMAGE, 'Set LOCAL_AUDIO_TEST_IMAGE to run isolated Docker integration tests')
 class DualStack(IPv6Fixture, unittest.TestCase):
     mode = 'dual'
 
+    def test_bandwidth_reservation_recovers_after_release(self):
+        # One independent, bounded fixture can reserve exactly one allocation.
+        # Exercise real rejection and recovery instead of increasing the main
+        # fixture's or product's resource limits to hide delayed teardown.
+        name = self.name + '-capacity'
+        clients = []
+        folder = Path(self.temp.name)
+        try:
+            run('docker', 'run', '-d', '--name', name, '--network', self.network,
+                '--read-only', '--memory=512m', '--cpus=2', '--pids-limit=150',
+                '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
+                '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,mode=1777,size=16m',
+                '-p', '[::1]::21113/udp', '-v', str(folder) + ':/run/secrets:ro',
+                '-e', 'TURN_IP_MODE=ipv6', '-e', 'TURN_PUBLIC_IPV6=' + self.public6,
+                '-e', 'TURN_AUTH_MODE=static', '-e', 'TURN_USERNAME=fixture',
+                '-e', 'TURN_PASSWORD_FILE=/run/secrets/password',
+                '-e', 'TURN_REALM=relay.test', '-e', 'TURN_MAX_BPS=12000000',
+                '-e', 'TURN_BPS_CAPACITY=12000000', IMAGE)
+            info = json.loads(run('docker', 'inspect', name).stdout)[0]
+            self.restrict_fixture_egress(info)
+            for _ in range(60):
+                if run('docker', 'exec', name, '/opt/ts3-relay/healthcheck.sh', check=False).returncode == 0:
+                    break
+                time.sleep(.25)
+            else:
+                raise RuntimeError('Capacity-recovery fixture failed healthcheck')
+            rows = run('docker', 'port', name, '21113/udp').stdout.splitlines()
+            port = int(next(row for row in rows if row.startswith('[::1]:')).rsplit(':', 1)[1])
+
+            def client():
+                result = Client(port, host='::1')
+                clients.append(result)
+                return result
+
+            first, blocked = client(), client()
+            self.allocate_success(first)
+            kind, fields = blocked.allocate('fixture', self.password, family=6)
+            self.assertEqual(kind, 0x113, 'A second allocation must fail while the first holds all bandwidth capacity')
+            self.assertEqual(error(fields), 486, 'Expected TURN resource quota error while one allocation holds all capacity')
+            blocked.close()
+            self.release_success(first)
+            recovered = client()
+            self.allocate_success(recovered)
+            self.release_success(recovered)
+        finally:
+            for c in clients:
+                c.close()
+            run('docker', 'rm', '-f', name, check=False)
+
     def test_dual_stack_cross_family_and_ipv4_default_allocations(self):
         for transport in ('udp', 'tcp', 'tls'):
             for client_family, relay_family in ((4, 6), (6, 4), (4, None)):
                 with self.subTest(transport=transport, client_family=client_family, relay_family=relay_family):
                     c = self.client(transport, client_family)
-                    self.assertEqual(c.allocate('fixture', self.password, relay_family)[0], 0x103)
+                    self.allocate_success(c, family=relay_family)
                     self.assertEqual(c.relay[0], self.public6 if relay_family == 6 else self.public4)
-                    self.assertEqual(c.release()[0], 0x104)
+                    self.release_success(c)
 
 
 @unittest.skipUnless(IMAGE, 'Set LOCAL_AUDIO_TEST_IMAGE to run isolated Docker integration tests')
