@@ -1,7 +1,9 @@
 """Real dual/IPv6-only relay tests over Docker-published IPv6 sockets.
 
-All containers use a private, internal IPv6 bridge. Synthetic public candidates
-must map back to the exact local ULA, so media never leaves the test network.
+All containers use a normal IPv6 NAT bridge, matching production publication.
+Only this fixture's network namespace receives unreachable default routes.
+Published loopback sockets and connected ULA traffic remain usable, while a
+broken synthetic-public mapping cannot send test media to the public Internet.
 Missing IPv6 support is a failure in the strict CI runner, never a skip.
 """
 import ipaddress
@@ -10,6 +12,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import sys
 import tempfile
 import time
 import unittest
@@ -43,19 +46,27 @@ class IPv6Fixture:
         subnet = 'fd' + identifier[:2] + ':' + identifier[2:6] + ':' + identifier[6:] + '::/64'
         cls.public6 = str(ipaddress.IPv6Address(sum(part << shift for part, shift in ((0x2001, 112), (0x4860, 96), (0x1234, 80), (1, 0)))))
         cls.public4 = '.'.join(str(x) for x in bytes([8]) * 4)
+        cls.phase = 'network-create'
+        cls.egress_isolated = False
         try:
-            run('docker', 'network', 'create', '--internal', '--ipv6', '--subnet', subnet, cls.network)
+            run('docker', 'network', 'create', '--ipv6', '--subnet', subnet, cls.network)
             args = ['docker', 'run', '-d', '--name', cls.name, '--network', cls.network, '--read-only', '--memory=512m', '--cpus=2', '--pids-limit=150', '--cap-drop=ALL', '--security-opt=no-new-privileges:true', '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,mode=1777,size=16m']
             for protocol, port in (('udp', 21113), ('tcp', 21113), ('tcp', 5349)):
                 args += ['-p', '[::1]::' + str(port) + '/' + protocol]
                 if cls.mode == 'dual': args += ['-p', '127.0.0.1::' + str(port) + '/' + protocol]
             args += ['-v', str(folder) + ':/run/secrets:ro', '-e', 'TURN_IP_MODE=' + cls.mode, '-e', 'TURN_PUBLIC_IPV6=' + cls.public6, '-e', 'TURN_AUTH_MODE=static', '-e', 'TURN_USERNAME=fixture', '-e', 'TURN_PASSWORD_FILE=/run/secrets/password', '-e', 'TURN_REALM=relay.test', '-e', 'TURN_TLS_ENABLE=1', '-e', 'TURN_TLS_CERT_FILE=/run/secrets/cert.pem', '-e', 'TURN_TLS_KEY_FILE=/run/secrets/key.pem']
             if cls.mode == 'dual': args += ['-e', 'TURN_PUBLIC_IP=' + cls.public4]
+            cls.phase = 'container-start'
             run(*args, IMAGE)
+            cls.phase = 'fixture-egress-isolation'
+            info = json.loads(run('docker', 'inspect', cls.name).stdout)[0]
+            cls.restrict_fixture_egress(info)
+            cls.phase = 'healthcheck'
             for _ in range(60):
                 if run('docker', 'exec', cls.name, '/opt/ts3-relay/healthcheck.sh', check=False).returncode == 0: break
                 time.sleep(.25)
             else: raise RuntimeError('IPv6 fixture failed healthcheck for ' + cls.mode)
+            cls.phase = 'published-port-discovery'
             cls.ports = {}
             for protocol, port, name in (('udp', 21113, 'udp'), ('tcp', 21113, 'tcp'), ('tcp', 5349, 'tls')):
                 rows = run('docker', 'port', cls.name, str(port) + '/' + protocol).stdout.splitlines()
@@ -66,11 +77,56 @@ class IPv6Fixture:
             cls.relay6 = interface['GlobalIPv6Address']
             cls.relay4 = interface['IPAddress']
             if not ipaddress.ip_address(cls.relay6).is_private: raise RuntimeError('Fixture must use an actual ULA relay')
+            cls.phase = 'network-verification'
             network = json.loads(run('docker', 'network', 'inspect', cls.network).stdout)[0]
-            if not network['Internal'] or not network['EnableIPv6']: raise RuntimeError('IPv6 fixture isolation is missing')
-        except Exception:
+            if network['Internal'] or not network['EnableIPv6'] or not cls.egress_isolated: raise RuntimeError('Fixture requires a normal IPv6 bridge with namespace-local egress isolation')
+            cls.phase = 'ready'
+        except Exception as exc:
+            cls.safe_failure_diagnostics(type(exc).__name__)
             cls.cleanup_fixture()
             raise
+
+    @classmethod
+    def restrict_fixture_egress(cls, info):
+        # nsenter changes only the exact running test container's netns. It does
+        # not add container capabilities or alter host routes/firewall/settings.
+        # Connected bridge routes are retained for host-published UDP/TCP/TLS.
+        pid = info.get('State', {}).get('Pid')
+        if info.get('HostConfig', {}).get('NetworkMode') != cls.network or not info.get('State', {}).get('Running') or not isinstance(pid, int) or pid <= 1:
+            raise RuntimeError('Refusing network changes outside the running fixture namespace')
+        prefix = ['sudo', '-n', 'nsenter', '--target', str(pid), '--net', '--', 'ip']
+        for family in ('-4', '-6'):
+            run(*prefix, family, 'route', 'flush', 'default')
+            run(*prefix, family, 'route', 'add', 'unreachable', 'default')
+            routes = run(*prefix, family, 'route', 'show', 'default').stdout.splitlines()
+            if len(routes) != 1 or not routes[0].startswith('unreachable default'):
+                raise RuntimeError('Fixture default-route isolation could not be verified')
+        cls.egress_isolated = True
+
+    @classmethod
+    def safe_failure_diagnostics(cls, error_type):
+        # Never dump inspect JSON, environment, configuration, keys or logs.
+        report = {'mode': cls.mode, 'phase': cls.phase, 'errorType': error_type, 'egressIsolated': cls.egress_isolated}
+        try:
+            probe = run('docker', 'inspect', cls.name, check=False)
+            report['containerInspectCode'] = probe.returncode
+            if probe.returncode == 0:
+                info = json.loads(probe.stdout)[0]
+                state = info.get('State', {})
+                report['containerStatus'] = state.get('Status')
+                report['containerExitCode'] = state.get('ExitCode')
+                report['healthStatus'] = state.get('Health', {}).get('Status')
+                report['ports'] = info.get('NetworkSettings', {}).get('Ports', {})
+            probe = run('docker', 'network', 'inspect', cls.network, check=False)
+            report['networkInspectCode'] = probe.returncode
+            if probe.returncode == 0:
+                network = json.loads(probe.stdout)[0]
+                report['networkInternal'] = network.get('Internal')
+                report['networkIPv6Enabled'] = network.get('EnableIPv6')
+                report['networkAttachedContainers'] = len(network.get('Containers') or {})
+        except Exception as diagnostic_error:
+            report['diagnosticErrorType'] = type(diagnostic_error).__name__
+        print('IPv6 fixture diagnostics: ' + json.dumps(report, sort_keys=True), file=sys.stderr)
 
     @classmethod
     def cleanup_fixture(cls):
