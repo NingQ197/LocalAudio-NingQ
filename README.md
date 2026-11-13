@@ -90,19 +90,28 @@ sudo cat secrets/turn-password
 
 镜像校验或导入失败时，这段命令会停止，后面的启动不会执行。`--no-build` 使用已导入镜像，服务器无需安装 Git，也无需访问 GitHub。
 
-### 4. 填入插件
+### 4. 配置插件
 
-在插件的屏幕共享网络设置中填写：
+打开插件的屏幕共享网络设置。如果中继与当前 TS 服务器部署在同一地址，**STUN 和 TURN 地址均可留空**，插件会自动使用当前 TS 服务器地址，解析 TS 的 SRV 记录，并使用 `21113` 端口。
+
+首次使用中继时填写账号，保存后会自动读取：
+
+```text
+用户名: localaudio
+密码:   secrets/turn-password 中的内容
+```
+
+用户名以 `.env` 中的 `TURN_USERNAME` 为准。插件不会自动获取服务器新生成的账号密码；P2P 直连不需要中继账号。
+
+仅当中继使用其他地址或端口时，手动填写 STUN / TURN 地址，例如：
 
 ```text
 STUN:  stun:relay.example.com:21113
 TURN:  turn:relay.example.com:21113?transport=udp
        turn:relay.example.com:21113?transport=tcp
-用户名: localaudio
-密码:   secrets/turn-password 中的内容
 ```
 
-将域名替换成自己的中继地址。用户名以 `.env` 中的 `TURN_USERNAME` 为准。日常使用自动模式可优先 P2P；测试中继时选择强制中继，确认连接状态为 `relay` 后检查画面和音轨。
+将示例域名替换成实际中继地址。日常使用自动模式可优先 P2P；测试中继时选择强制中继，确认连接状态为 `relay` 后检查画面和音轨。
 
 ## 从源码构建
 
@@ -139,4 +148,8 @@ LOCAL_AUDIO_TEST_IMAGE=localaudio-ningq:test python3 tools/run_container_checks.
 
 CI 包含配置测试、真实容器鉴权和媒体中继测试，以及最终镜像依赖扫描。容器测试覆盖本地协议路径；云防火墙、运营商网络和客户端公网连接需要在实际部署后验证。
 
-项目使用 [MIT 许可证](LICENSE)。coturn 与 Debian 组件见[第三方声明](server/THIRD_PARTY_NOTICES.txt)。
+项目源码使用 [MIT 许可证](LICENSE)，创作者图片不包含在代码许可证内。coturn 与 Debian 组件见[第三方声明](server/THIRD_PARTY_NOTICES.txt)。
+
+## 爱发电
+
+<img src="docs/assets/creator-card.jpg" width="320" alt="宁清的爱发电">

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Check tracked-source boundaries without printing potential secret values."""
 import ipaddress
+import hashlib
 import re
 import subprocess
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 FORBIDDEN_SUFFIXES={'.pem','.key','.pfx','.p12','.db','.sqlite','.sqlite3','.log','.zip','.tar','.gz','.exe','.dll','.qcow2'}
+# Only this explicitly published creator image may bypass text decoding.
+# Both its path and exact bytes are fixed; other binary files remain blocked.
+DOCUMENT_IMAGES={'docs/assets/creator-card.jpg':'2f84a9a18079ec03523643f02b1d5ce1d467b00511ce9bb90178e6d2756acb82'}
 PATTERNS={
  'private_key':re.compile(r'^-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----',re.M),
  'provider_token':re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{25,})\b'),
@@ -30,6 +34,9 @@ def findings(path):
     if path.is_symlink():
         return problems+['source_symlink']
     raw=path.read_bytes()
+    if name in DOCUMENT_IMAGES:
+        if hashlib.sha256(raw).hexdigest()!=DOCUMENT_IMAGES[name]:problems.append('unapproved_document_image')
+        return problems
     if len(raw)>1024*1024 or b'\0' in raw:problems.append('binary_or_oversize');return problems
     try:text=raw.decode('utf-8-sig')
     except UnicodeDecodeError:return problems+['non_utf8_source_file']

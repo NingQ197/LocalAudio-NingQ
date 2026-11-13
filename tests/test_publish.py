@@ -56,6 +56,19 @@ class PublishBoundary(unittest.TestCase):
         file.write_text('Example: turn:[2001:db8::1]:21113\n')
         self.assertEqual(check.findings(file), [])
 
+    def test_creator_image_requires_exact_path_and_approved_bytes(self):
+        relative = 'docs/assets/creator-card.jpg'
+        approved = (ROOT / relative).read_bytes()
+        file = self.root / relative
+        file.parent.mkdir(parents=True)
+        file.write_bytes(approved)
+        self.assertEqual(check.findings(file), [])
+        other = file.with_name('unapproved.jpg')
+        other.write_bytes(approved)
+        self.assertTrue(check.findings(other))
+        file.write_bytes(approved + b'changed')
+        self.assertIn('unapproved_document_image', check.findings(file))
+
 
 if __name__ == '__main__':
     unittest.main()

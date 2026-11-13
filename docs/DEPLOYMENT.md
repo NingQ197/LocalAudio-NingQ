@@ -112,15 +112,26 @@ sudo cat secrets/turn-password
 
 ### 5. 配置插件
 
+打开插件的屏幕共享网络设置。中继与当前 TS 服务器部署在同一地址时，**STUN 和 TURN 地址留空即可**；插件会自动使用当前 TS 服务器地址，解析 TS 的 SRV 记录，并使用 `21113` 端口。
+
+首次使用中继时填写账号，保存后自动读取：
+
 ```text
-STUN:  stun:relay.example.com:21113
-TURN:  turn:relay.example.com:21113?transport=udp
-       turn:relay.example.com:21113?transport=tcp
 用户名: localaudio
 密码:   secrets/turn-password 中的内容
 ```
 
-替换成自己的域名和账号。自动模式优先 P2P；验收中继时选择强制中继，确认选中 `relay`，再检查视频和共享音轨。
+用户名以 `.env` 中的 `TURN_USERNAME` 为准。账号密码不会自动从服务器获取；P2P 直连无需中继账号。切换到其他中继地址后，需配置该地址对应的账号。
+
+中继使用其他地址或端口时，再手动填写，例如：
+
+```text
+STUN:  stun:relay.example.com:21113
+TURN:  turn:relay.example.com:21113?transport=udp
+       turn:relay.example.com:21113?transport=tcp
+```
+
+将示例域名替换成实际中继地址。自动模式优先 P2P；验收中继时选择强制中继，确认选中 `relay`，再检查视频和共享音轨。
 
 ## B：从源码构建
 
